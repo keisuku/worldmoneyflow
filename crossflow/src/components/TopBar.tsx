@@ -25,17 +25,17 @@ export function TopBar({ regime, vixValue, dxyValue }: TopBarProps) {
       }}
     >
       {/* ロゴ */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{ fontSize: '18px', fontWeight: 'bold', letterSpacing: '2px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+        <span style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '2px', whiteSpace: 'nowrap' }}>
           CROSS<span style={{ color: '#4CAF50' }}>FLOW</span>
         </span>
-        <span style={{ fontSize: '11px', color: '#888' }}>
+        <span className="topbar-tagline" style={{ fontSize: '11px', color: '#888', whiteSpace: 'nowrap' }}>
           Cross-Asset Money Flow
         </span>
       </div>
 
       {/* Regime + Indicators */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
         {/* Market Regime */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div

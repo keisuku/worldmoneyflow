@@ -14,6 +14,14 @@ body {
 #root {
   width: 100%;
   height: 100vh;
+  height: 100dvh;
+}
+
+/* モバイル対応 */
+@media (max-width: 767px) {
+  .topbar-tagline {
+    display: none;
+  }
 }
 
 /* スクロールバー */

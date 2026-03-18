@@ -31,7 +31,7 @@ export function ControlBar({
   onSizeModeChange,
 }: ControlBarProps) {
   const buttonStyle = (active: boolean): React.CSSProperties => ({
-    padding: '4px 12px',
+    padding: '4px 8px',
     border: 'none',
     borderRadius: '4px',
     background: active ? 'rgba(76, 175, 80, 0.3)' : 'transparent',
@@ -40,6 +40,7 @@ export function ControlBar({
     fontSize: '11px',
     fontFamily: 'monospace',
     fontWeight: active ? 'bold' : 'normal',
+    whiteSpace: 'nowrap',
   });
 
   return (
@@ -48,10 +49,11 @@ export function ControlBar({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '6px 16px',
+        padding: '6px 8px',
         background: 'rgba(10, 14, 39, 0.9)',
         borderBottom: '1px solid rgba(255,255,255,0.05)',
-        gap: '8px',
+        gap: '4px',
+        flexWrap: 'wrap',
       }}
     >
       {/* Period */}
