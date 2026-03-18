@@ -6,8 +6,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>crossflow</title>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin:0;background:#0a0e27">
+    <div id="root">
+      <!-- React読み込み前のフォールバック表示 -->
+      <div id="loading-fallback" style="color:#888;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;height:100dvh;text-align:center;padding:24px">
+        <div>
+          <div style="font-size:20px;font-weight:bold;color:#fff;margin-bottom:8px">CROSS<span style="color:#4CAF50">FLOW</span></div>
+          <div style="font-size:12px">Loading...</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // JSモジュール読み込みエラーのキャッチ
+      window.addEventListener('error', function(e) {
+        var el = document.getElementById('loading-fallback');
+        if (el) {
+          el.innerHTML = '<div><div style="color:#ef4444;font-size:16px;margin-bottom:12px">JS Error</div><div style="font-size:12px;color:#888;word-break:break-word;max-width:300px">' + (e.message || 'Unknown error') + '</div></div>';
+        }
+      });
+    </script>
   </body>
 </html>
