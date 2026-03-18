@@ -18,166 +18,81 @@ let fxRatesCache: { rates: Record<string, number>; fetchedAt: number } | null = 
 
 /**
  * マーケットデータ統合Hook
- * リアルAPI → キャッシュフォールバック → モックデータ の3段階
+ * 初回はモックデータを即表示 → バックグラウンドでAPI並列取得 → マージ更新
  */
 export function useMarketData(nodes: MarketNode[]) {
-  const [data, setData] = useState<Map<string, MarketDataPoint>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<Map<string, MarketDataPoint>>(() => initMockData(nodes));
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
+  // ノード変更時にモックデータでリセット（即座に表示）
+  useEffect(() => {
+    setData(initMockData(nodes));
+  }, [nodes]);
 
   // データソース登録
   useEffect(() => {
     const yahooCount = nodes.filter((n) => n.source === 'yahoo' || n.source === 'cboe').length;
     const cgCount = nodes.filter((n) => n.source === 'coingecko').length;
-    const fxCount = nodes.filter((n) => n.id === 'jpy' || n.id === 'eur' || n.id === 'usdjpy' || n.id === 'eurjpy').length;
+    const fxCount = nodes.filter((n) => ['jpy', 'eur', 'usdjpy', 'eurjpy'].includes(n.id)).length;
     dataQuality.registerSource('yahoo', yahooCount);
     dataQuality.registerSource('coingecko', cgCount);
     dataQuality.registerSource('exchange_rate', fxCount);
   }, [nodes]);
 
   const refresh = useCallback(async () => {
+    const currentNodes = nodesRef.current;
     setLoading(true);
     setError(null);
 
-    const result = new Map<string, MarketDataPoint>();
     const now = Date.now();
 
-    // === Tier 1: Yahoo Finance (株価/コモディティ/VIX) ===
-    const yahooNodes = nodes.filter(
-      (n) => (n.source === 'yahoo' || n.source === 'cboe') && YAHOO_SYMBOLS[n.id],
-    );
-    const yahooSymbols = yahooNodes.map((n) => YAHOO_SYMBOLS[n.id]).filter(Boolean);
+    // 全APIソースを並列実行
+    const [yahooResult, cgResult, fxResult] = await Promise.allSettled([
+      fetchYahooData(currentNodes, now),
+      fetchCoinGeckoData(currentNodes, now),
+      fetchFxData(currentNodes, now),
+    ]);
 
-    if (yahooSymbols.length > 0) {
-      try {
-        const quotes = await fetchQuotes(yahooSymbols);
-        const quoteMap = new Map(quotes.map((q) => [q.symbol, q]));
+    // 既存データにマージ（APIで取れた分だけ上書き）
+    setData((prev) => {
+      const merged = new Map(prev);
 
-        for (const node of yahooNodes) {
-          const symbol = YAHOO_SYMBOLS[node.id];
-          const quote = quoteMap.get(symbol);
-          if (quote) {
-            const dp: MarketDataPoint = {
-              nodeId: node.id,
-              price: quote.regularMarketPrice,
-              change1d: quote.regularMarketChangePercent,
-              change1w: quote.weekChange ?? 0,
-              change1m: quote.monthChange ?? 0,
-              volume: quote.regularMarketVolume,
-              flow: estimateNodeFlow(
-                quote.regularMarketChangePercent,
-                quote.regularMarketVolume,
-                node.baseMass,
-              ),
-              timestamp: now,
-            };
-            result.set(node.id, dp);
-            cache.set(node.id, { data: dp, fetchedAt: now });
-          }
+      if (yahooResult.status === 'fulfilled') {
+        for (const [id, dp] of yahooResult.value) {
+          merged.set(id, dp);
         }
-        dataQuality.recordSuccess('yahoo', result.size);
-      } catch (err) {
-        console.warn('Yahoo Finance fetch failed, using cache:', err);
-        dataQuality.recordError('yahoo', String(err));
-        // キャッシュフォールバック
-        for (const node of yahooNodes) {
+      }
+      if (cgResult.status === 'fulfilled') {
+        for (const [id, dp] of cgResult.value) {
+          merged.set(id, dp);
+        }
+      }
+      if (fxResult.status === 'fulfilled') {
+        for (const [id, dp] of fxResult.value) {
+          merged.set(id, dp);
+        }
+      }
+
+      // API取れなかったノードはキャッシュ or 既存(モック)をそのまま保持
+      for (const node of currentNodes) {
+        if (!merged.has(node.id)) {
           const cached = cache.get(node.id);
-          if (cached) result.set(node.id, cached.data);
+          if (cached) merged.set(node.id, cached.data);
         }
       }
-    }
 
-    // === Tier 1: CoinGecko (暗号資産) ===
-    const cgNodes = nodes.filter((n) => n.source === 'coingecko' && COINGECKO_IDS[n.id]);
-    if (cgNodes.length > 0) {
-      const cgIds = [...new Set(cgNodes.map((n) => COINGECKO_IDS[n.id]))];
-      try {
-        const coins = await fetchCoinPrices(cgIds);
-        const coinMap = new Map(coins.map((c) => [c.id, c]));
+      return merged;
+    });
 
-        for (const node of cgNodes) {
-          const cgId = COINGECKO_IDS[node.id];
-          const coin = coinMap.get(cgId);
-          if (coin) {
-            const converted = coinToNodeData(coin);
-            const dp: MarketDataPoint = {
-              nodeId: node.id,
-              ...converted,
-              flow: estimateNodeFlow(converted.change1d, converted.volume, node.baseMass),
-              timestamp: now,
-            };
-            result.set(node.id, dp);
-            cache.set(node.id, { data: dp, fetchedAt: now });
-          }
-        }
-        dataQuality.recordSuccess('coingecko', cgNodes.length);
-      } catch (err) {
-        console.warn('CoinGecko fetch failed, using cache:', err);
-        dataQuality.recordError('coingecko', String(err));
-        for (const node of cgNodes) {
-          const cached = cache.get(node.id);
-          if (cached) result.set(node.id, cached.data);
-        }
-      }
-    }
-
-    // === Tier 1: Exchange Rate API (FX) ===
-    const fxNodes = nodes.filter(
-      (n) => ['jpy', 'eur', 'usdjpy', 'eurjpy'].includes(n.id),
-    );
-    if (fxNodes.length > 0) {
-      try {
-        const previousRates = fxRatesCache?.rates;
-        const fxData = await fetchExchangeRates('USD');
-        fxRatesCache = { rates: fxData.rates, fetchedAt: now };
-
-        for (const node of fxNodes) {
-          const fxResult = extractFxData(fxData.rates, node.id, previousRates);
-          if (fxResult) {
-            const dp: MarketDataPoint = {
-              nodeId: node.id,
-              price: fxResult.price,
-              change1d: fxResult.change1d,
-              change1w: 0,
-              change1m: 0,
-              volume: 0,
-              flow: estimateNodeFlow(fxResult.change1d, 1e9, node.baseMass),
-              timestamp: now,
-            };
-            result.set(node.id, dp);
-            cache.set(node.id, { data: dp, fetchedAt: now });
-          }
-        }
-        dataQuality.recordSuccess('exchange_rate', fxNodes.length);
-      } catch (err) {
-        console.warn('ExchangeRate fetch failed, using cache:', err);
-        dataQuality.recordError('exchange_rate', String(err));
-        for (const node of fxNodes) {
-          const cached = cache.get(node.id);
-          if (cached) result.set(node.id, cached.data);
-        }
-      }
-    }
-
-    // === フォールバック: キャッシュもなければモックデータ ===
-    for (const node of nodes) {
-      if (!result.has(node.id)) {
-        const cached = cache.get(node.id);
-        if (cached && now - cached.fetchedAt < 3600_000) {
-          result.set(node.id, cached.data);
-        } else {
-          // 最終手段: モックデータ
-          result.set(node.id, generateMockPoint(node, now));
-        }
-      }
-    }
-
-    setData(result);
     setLoading(false);
-  }, [nodes]);
+  }, []);
 
   useEffect(() => {
+    // 初回API取得（モック表示後にバックグラウンドで）
     refresh();
     // 1分間隔でリフレッシュ
     intervalRef.current = setInterval(refresh, 60_000);
@@ -189,7 +104,157 @@ export function useMarketData(nodes: MarketNode[]) {
   return { data, loading, error, refresh };
 }
 
-/** モックデータ生成（最終フォールバック） */
+// ===== API Fetch Functions (各ソース独立) =====
+
+async function fetchYahooData(
+  nodes: MarketNode[],
+  now: number,
+): Promise<Map<string, MarketDataPoint>> {
+  const result = new Map<string, MarketDataPoint>();
+  const yahooNodes = nodes.filter(
+    (n) => (n.source === 'yahoo' || n.source === 'cboe') && YAHOO_SYMBOLS[n.id],
+  );
+  if (yahooNodes.length === 0) return result;
+
+  const symbols = [...new Set(yahooNodes.map((n) => YAHOO_SYMBOLS[n.id]))];
+
+  try {
+    const quotes = await fetchQuotes(symbols);
+    const quoteMap = new Map(quotes.map((q) => [q.symbol, q]));
+
+    for (const node of yahooNodes) {
+      const symbol = YAHOO_SYMBOLS[node.id];
+      const quote = quoteMap.get(symbol);
+      if (quote) {
+        const dp: MarketDataPoint = {
+          nodeId: node.id,
+          price: quote.regularMarketPrice,
+          change1d: quote.regularMarketChangePercent,
+          change1w: quote.weekChange ?? 0,
+          change1m: quote.monthChange ?? 0,
+          volume: quote.regularMarketVolume,
+          flow: estimateNodeFlow(
+            quote.regularMarketChangePercent,
+            quote.regularMarketVolume,
+            node.baseMass,
+          ),
+          timestamp: now,
+        };
+        result.set(node.id, dp);
+        cache.set(node.id, { data: dp, fetchedAt: now });
+      }
+    }
+    dataQuality.recordSuccess('yahoo', result.size);
+  } catch (err) {
+    console.warn('Yahoo Finance fetch failed:', err);
+    dataQuality.recordError('yahoo', String(err));
+    // キャッシュフォールバック
+    for (const node of yahooNodes) {
+      const cached = cache.get(node.id);
+      if (cached) result.set(node.id, cached.data);
+    }
+  }
+
+  return result;
+}
+
+async function fetchCoinGeckoData(
+  nodes: MarketNode[],
+  now: number,
+): Promise<Map<string, MarketDataPoint>> {
+  const result = new Map<string, MarketDataPoint>();
+  const cgNodes = nodes.filter((n) => n.source === 'coingecko' && COINGECKO_IDS[n.id]);
+  if (cgNodes.length === 0) return result;
+
+  const cgIds = [...new Set(cgNodes.map((n) => COINGECKO_IDS[n.id]))];
+
+  try {
+    const coins = await fetchCoinPrices(cgIds);
+    const coinMap = new Map(coins.map((c) => [c.id, c]));
+
+    for (const node of cgNodes) {
+      const cgId = COINGECKO_IDS[node.id];
+      const coin = coinMap.get(cgId);
+      if (coin) {
+        const converted = coinToNodeData(coin);
+        const dp: MarketDataPoint = {
+          nodeId: node.id,
+          ...converted,
+          flow: estimateNodeFlow(converted.change1d, converted.volume, node.baseMass),
+          timestamp: now,
+        };
+        result.set(node.id, dp);
+        cache.set(node.id, { data: dp, fetchedAt: now });
+      }
+    }
+    dataQuality.recordSuccess('coingecko', result.size);
+  } catch (err) {
+    console.warn('CoinGecko fetch failed:', err);
+    dataQuality.recordError('coingecko', String(err));
+    for (const node of cgNodes) {
+      const cached = cache.get(node.id);
+      if (cached) result.set(node.id, cached.data);
+    }
+  }
+
+  return result;
+}
+
+async function fetchFxData(
+  nodes: MarketNode[],
+  now: number,
+): Promise<Map<string, MarketDataPoint>> {
+  const result = new Map<string, MarketDataPoint>();
+  const fxNodes = nodes.filter((n) => ['jpy', 'eur', 'usdjpy', 'eurjpy'].includes(n.id));
+  if (fxNodes.length === 0) return result;
+
+  try {
+    const previousRates = fxRatesCache?.rates;
+    const fxData = await fetchExchangeRates('USD');
+    fxRatesCache = { rates: fxData.rates, fetchedAt: now };
+
+    for (const node of fxNodes) {
+      const fxResult = extractFxData(fxData.rates, node.id, previousRates);
+      if (fxResult) {
+        const dp: MarketDataPoint = {
+          nodeId: node.id,
+          price: fxResult.price,
+          change1d: fxResult.change1d,
+          change1w: 0,
+          change1m: 0,
+          volume: 0,
+          flow: estimateNodeFlow(fxResult.change1d, 1e9, node.baseMass),
+          timestamp: now,
+        };
+        result.set(node.id, dp);
+        cache.set(node.id, { data: dp, fetchedAt: now });
+      }
+    }
+    dataQuality.recordSuccess('exchange_rate', result.size);
+  } catch (err) {
+    console.warn('ExchangeRate fetch failed:', err);
+    dataQuality.recordError('exchange_rate', String(err));
+    for (const node of fxNodes) {
+      const cached = cache.get(node.id);
+      if (cached) result.set(node.id, cached.data);
+    }
+  }
+
+  return result;
+}
+
+// ===== Mock Data =====
+
+/** 初期モックデータ生成（即座にUI表示するため） */
+function initMockData(nodes: MarketNode[]): Map<string, MarketDataPoint> {
+  const map = new Map<string, MarketDataPoint>();
+  const now = Date.now();
+  for (const node of nodes) {
+    map.set(node.id, generateMockPoint(node, now));
+  }
+  return map;
+}
+
 function generateMockPoint(node: MarketNode, now: number): MarketDataPoint {
   const basePrice = MOCK_PRICES[node.id] ?? 100;
   const change1d = (Math.random() - 0.5) * 4;
