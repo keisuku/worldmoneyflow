@@ -1,17 +1,30 @@
 import { useRef, useCallback, useState } from 'react';
-import type { MarketNode, Flow, FlowParticle, MarketDataPoint } from '../types';
+import type { MarketNode, Flow, FlowParticle, MarketDataPoint, GroundLayer, CorrelationPair, SizeMode } from '../types';
+import { calcBubbleRadius, calcBubbleBorder } from '../types';
 import { useAnimation } from '../hooks/useAnimation';
 
 interface BubbleMapProps {
   nodes: MarketNode[];
   flows: Flow[];
   marketData: Map<string, MarketDataPoint>;
+  groundLayers: GroundLayer[];
+  correlationPairs: CorrelationPair[];
+  regime: 'risk-on' | 'risk-off';
+  sizeMode: SizeMode;
 }
 
 /**
- * メインCanvas - バブルチャート + パーティクルアニメーション + 地面
+ * メインCanvas - バブルチャート + パーティクルアニメーション + 地面3レイヤー + 相関点線
  */
-export function BubbleMap({ nodes, flows, marketData }: BubbleMapProps) {
+export function BubbleMap({
+  nodes,
+  flows,
+  marketData,
+  groundLayers,
+  correlationPairs: corrPairs,
+  regime,
+  sizeMode,
+}: BubbleMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Map<string, FlowParticle[]>>(new Map());
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -24,22 +37,17 @@ export function BubbleMap({ nodes, flows, marketData }: BubbleMapProps) {
       const w = rect.width;
       const h = rect.height;
 
-      // 背景
       drawBackground(ctx, w, h);
-
-      // 地面（現金ポジション）
-      drawGround(ctx, w, h);
-
-      // フローパーティクル更新・描画
+      drawGroundLayers(ctx, w, h, groundLayers, regime);
+      drawCorrelationLines(ctx, corrPairs, nodes, w, h);
       updateAndDrawParticles(ctx, flows, nodes, particlesRef.current, w, h, deltaTime);
 
-      // バブル描画
       for (const node of nodes) {
         const data = marketData.get(node.id);
-        drawBubble(ctx, node, data, w, h, hoveredNode === node.id);
+        drawBubble(ctx, node, data, w, h, hoveredNode === node.id, regime, sizeMode);
       }
     },
-    [nodes, flows, marketData, hoveredNode],
+    [nodes, flows, marketData, hoveredNode, groundLayers, corrPairs, regime, sizeMode],
   );
 
   useAnimation(canvasRef, draw);
@@ -54,17 +62,24 @@ export function BubbleMap({ nodes, flows, marketData }: BubbleMapProps) {
 
       let found: string | null = null;
       for (const node of nodes) {
-        const nx = node.x * rect.width;
-        const ny = node.y * rect.height;
+        const nx = node.position.x * rect.width;
+        const ny = node.position.y * rect.height;
+        const r = calcBubbleRadius({
+          mode: sizeMode,
+          baseMass: node.baseMass,
+          flow: marketData.get(node.id)?.flow ?? 0,
+          regime,
+          isVix: node.category === 'volatility',
+        });
         const dist = Math.sqrt((mx - nx) ** 2 + (my - ny) ** 2);
-        if (dist < node.baseRadius) {
+        if (dist < r) {
           found = node.id;
           break;
         }
       }
       setHoveredNode(found);
     },
-    [nodes],
+    [nodes, sizeMode, regime, marketData],
   );
 
   return (
@@ -87,19 +102,69 @@ function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.fillRect(0, 0, w, h);
 }
 
-function drawGround(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const groundY = h * 0.85;
-  const gradient = ctx.createLinearGradient(0, groundY, 0, h);
-  gradient.addColorStop(0, 'rgba(34, 139, 34, 0.1)');
-  gradient.addColorStop(1, 'rgba(34, 139, 34, 0.3)');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, groundY, w, h - groundY);
+function drawGroundLayers(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  layers: GroundLayer[],
+  regime: 'risk-on' | 'risk-off',
+) {
+  const groundStart = h * 0.78;
+  const layerHeight = (h - groundStart) / layers.length;
 
-  // 地面ラベル
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.font = '12px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('CASH / MONEY MARKET', w / 2, h * 0.92);
+  for (const layer of layers) {
+    const y = groundStart + layer.layerIndex * layerHeight;
+    const baseColor = regime === 'risk-off' ? layer.riskOffColor : layer.riskOnColor;
+    const expansion = layer.expansion;
+
+    const gradient = ctx.createLinearGradient(0, y, 0, y + layerHeight);
+    gradient.addColorStop(0, hexToRgba(baseColor, 0.08 + expansion * 0.15));
+    gradient.addColorStop(1, hexToRgba(baseColor, 0.15 + expansion * 0.2));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, y, w, layerHeight);
+
+    // 境界線
+    ctx.strokeStyle = hexToRgba(baseColor, 0.25);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+
+    // ラベル
+    ctx.fillStyle = hexToRgba(layer.color, 0.5);
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(layer.label, w - 12, y + layerHeight / 2 + 3);
+  }
+}
+
+function drawCorrelationLines(
+  ctx: CanvasRenderingContext2D,
+  pairs: CorrelationPair[],
+  nodes: MarketNode[],
+  w: number,
+  h: number,
+) {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  ctx.save();
+  ctx.setLineDash([4, 6]);
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+
+  for (const pair of pairs) {
+    const a = nodeMap.get(pair.nodeA);
+    const b = nodeMap.get(pair.nodeB);
+    if (!a || !b) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(a.position.x * w, a.position.y * h);
+    ctx.lineTo(b.position.x * w, b.position.y * h);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function drawBubble(
@@ -109,46 +174,60 @@ function drawBubble(
   w: number,
   h: number,
   isHovered: boolean,
+  regime: 'risk-on' | 'risk-off',
+  sizeMode: SizeMode,
 ) {
-  const x = node.x * w;
-  const y = node.y * h;
+  const x = node.position.x * w;
+  const y = node.position.y * h;
+  const flow = data?.flow ?? 0;
 
-  // 変動率に応じてバブルサイズを調整
-  const changeFactor = data ? 1 + Math.abs(data.change1d) * 0.05 : 1;
-  const radius = node.baseRadius * changeFactor * (isHovered ? 1.15 : 1);
+  const radius = calcBubbleRadius({
+    mode: sizeMode,
+    baseMass: node.baseMass,
+    flow,
+    regime,
+    isVix: node.category === 'volatility',
+  }) * (isHovered ? 1.12 : 1);
 
-  // グロー効果
+  const border = calcBubbleBorder(flow);
+
+  // グロー
   ctx.save();
   ctx.shadowColor = node.color;
-  ctx.shadowBlur = isHovered ? 25 : 15;
+  ctx.shadowBlur = isHovered ? 25 : 12;
 
   // バブル本体
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = hexToRgba(node.color, 0.3);
+  ctx.fillStyle = hexToRgba(node.color, 0.25);
   ctx.fill();
 
-  // 枠線
-  ctx.strokeStyle = node.color;
-  ctx.lineWidth = isHovered ? 2.5 : 1.5;
+  // 枠線（フロー色）
+  ctx.strokeStyle = border.color;
+  ctx.lineWidth = isHovered ? border.width + 0.5 : border.width;
   ctx.stroke();
   ctx.restore();
 
   // ラベル
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${Math.max(10, radius * 0.3)}px sans-serif`;
+  ctx.font = `bold ${Math.max(9, radius * 0.32)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(node.label, x, y - 6);
 
   // 変動率
   if (data) {
-    const changeColor = data.change1d >= 0 ? '#4CAF50' : '#F44336';
+    const changeColor = data.change1d >= 0 ? '#22c55e' : '#ef4444';
     const sign = data.change1d >= 0 ? '+' : '';
     ctx.fillStyle = changeColor;
-    ctx.font = `${Math.max(9, radius * 0.25)}px monospace`;
-    ctx.fillText(`${sign}${data.change1d.toFixed(2)}%`, x, y + 10);
+    ctx.font = `${Math.max(8, radius * 0.24)}px monospace`;
+    ctx.fillText(`${sign}${data.change1d.toFixed(2)}%`, x, y + 8);
   }
+
+  // baseMass (small, below change)
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = `${Math.max(7, radius * 0.18)}px monospace`;
+  ctx.fillText(`$${node.baseMass}T`, x, y + 18);
 }
 
 function updateAndDrawParticles(
@@ -169,18 +248,16 @@ function updateAndDrawParticles(
     const toNode = nodeMap.get(flow.to);
     if (!fromNode || !toNode) continue;
 
-    // パーティクルリスト取得/初期化
     if (!particles.has(flow.id)) {
       particles.set(flow.id, []);
     }
     const list = particles.get(flow.id)!;
 
-    // 新しいパーティクルを生成（強度に応じた頻度）
     const spawnRate = Math.abs(flow.intensity) * 3;
     if (Math.random() < spawnRate * deltaTime) {
       list.push({
-        x: fromNode.x * w,
-        y: fromNode.y * h,
+        x: fromNode.position.x * w,
+        y: fromNode.position.y * h,
         progress: 0,
         speed: 0.3 + Math.random() * 0.4,
         opacity: 0.6 + Math.random() * 0.4,
@@ -188,7 +265,6 @@ function updateAndDrawParticles(
       });
     }
 
-    // パーティクル更新・描画
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
       p.progress += p.speed * deltaTime;
@@ -198,11 +274,13 @@ function updateAndDrawParticles(
         continue;
       }
 
-      // 線形補間で位置計算
-      p.x = fromNode.x * w + (toNode.x * w - fromNode.x * w) * p.progress;
-      p.y = fromNode.y * h + (toNode.y * h - fromNode.y * h) * p.progress;
+      const fx = fromNode.position.x * w;
+      const fy = fromNode.position.y * h;
+      const tx = toNode.position.x * w;
+      const ty = toNode.position.y * h;
+      p.x = fx + (tx - fx) * p.progress;
+      p.y = fy + (ty - fy) * p.progress;
 
-      // 描画
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fillStyle = hexToRgba(flow.color, p.opacity * (1 - p.progress * 0.5));

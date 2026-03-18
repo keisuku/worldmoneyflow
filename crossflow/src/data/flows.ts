@@ -5,41 +5,42 @@ import type { Flow } from '../types';
  * intensity は動的に計算されるが、初期値を設定
  */
 export const defaultFlows: Flow[] = [
-  // Risk-On: 債券 → 株式
-  { id: 'bond_to_equity_us', from: 'us10y', to: 'sp500', intensity: 0, color: '#4CAF50' },
-  { id: 'bond_to_nasdaq', from: 'us10y', to: 'nasdaq', intensity: 0, color: '#66BB6A' },
-  { id: 'bond_to_em', from: 'us10y', to: 'emerging', intensity: 0, color: '#A5D6A7' },
+  // Risk-On: Safe → Risk
+  { id: 'ust_to_spx', from: 'ust', to: 'spx', intensity: 0, color: '#3b82f6' },
+  { id: 'ust_to_ndx', from: 'ust', to: 'ndx', intensity: 0, color: '#6366f1' },
+  { id: 'ust_to_em', from: 'ust', to: 'em', intensity: 0, color: '#fb923c' },
+  { id: 'gold_to_spx', from: 'gold', to: 'spx', intensity: 0, color: '#3b82f6' },
 
-  // Risk-Off: 株式 → 債券・金
-  { id: 'equity_to_bond', from: 'sp500', to: 'us10y', intensity: 0, color: '#2196F3' },
-  { id: 'equity_to_gold', from: 'sp500', to: 'gold', intensity: 0, color: '#FFD700' },
+  // Risk-Off: Risk → Safe
+  { id: 'spx_to_ust', from: 'spx', to: 'ust', intensity: 0, color: '#a855f7' },
+  { id: 'spx_to_gold', from: 'spx', to: 'gold', intensity: 0, color: '#d4a017' },
+  { id: 'ndx_to_ust', from: 'ndx', to: 'ust', intensity: 0, color: '#a855f7' },
 
-  // ドル高: 新興国 → 米国
-  { id: 'em_to_us', from: 'emerging', to: 'sp500', intensity: 0, color: '#4CAF50' },
-  { id: 'asia_to_us', from: 'nikkei', to: 'sp500', intensity: 0, color: '#43A047' },
+  // USD strength: EM → US
+  { id: 'em_to_spx', from: 'em', to: 'spx', intensity: 0, color: '#3b82f6' },
+  { id: 'nky_to_spx', from: 'nky', to: 'spx', intensity: 0, color: '#06b6d4' },
 
-  // ドル安: 米国 → 新興国・コモディティ
-  { id: 'us_to_em', from: 'sp500', to: 'emerging', intensity: 0, color: '#A5D6A7' },
-  { id: 'dxy_to_gold', from: 'dxy', to: 'gold', intensity: 0, color: '#FFD700' },
+  // USD weakness: US → EM/Commodity
+  { id: 'spx_to_em', from: 'spx', to: 'em', intensity: 0, color: '#fb923c' },
+  { id: 'usd_to_gold', from: 'usd', to: 'gold', intensity: 0, color: '#d4a017' },
 
-  // 暗号資産フロー
-  { id: 'equity_to_crypto', from: 'nasdaq', to: 'bitcoin', intensity: 0, color: '#F7931A' },
-  { id: 'crypto_to_equity', from: 'bitcoin', to: 'nasdaq', intensity: 0, color: '#66BB6A' },
-  { id: 'btc_to_eth', from: 'bitcoin', to: 'ethereum', intensity: 0, color: '#627EEA' },
+  // Crypto
+  { id: 'ndx_to_btc', from: 'ndx', to: 'btc', intensity: 0, color: '#f97316' },
+  { id: 'btc_to_ndx', from: 'btc', to: 'ndx', intensity: 0, color: '#6366f1' },
 
-  // クレジット
-  { id: 'ig_to_hy', from: 'us_ig', to: 'us_hy', intensity: 0, color: '#90CAF9' },
-  { id: 'hy_to_ig', from: 'us_hy', to: 'us_ig', intensity: 0, color: '#64B5F6' },
+  // Credit
+  { id: 'ust_to_hy', from: 'ust', to: 'hy', intensity: 0, color: '#f472b6' },
+  { id: 'hy_to_ust', from: 'hy', to: 'ust', intensity: 0, color: '#a855f7' },
 
-  // コモディティ間
-  { id: 'oil_to_copper', from: 'wti', to: 'copper', intensity: 0, color: '#E65100' },
-  { id: 'gold_to_oil', from: 'gold', to: 'wti', intensity: 0, color: '#FF9800' },
+  // Commodity
+  { id: 'oil_to_copper', from: 'oil', to: 'copper', intensity: 0, color: '#b45309' },
 
-  // 日米フロー
-  { id: 'nikkei_to_sp', from: 'nikkei', to: 'sp500', intensity: 0, color: '#43A047' },
-  { id: 'jgb_to_ust', from: 'jgb10y', to: 'us10y', intensity: 0, color: '#1E88E5' },
+  // Japan
+  { id: 'nky_to_jgb', from: 'nky', to: 'jgb', intensity: 0, color: '#c084fc' },
+  { id: 'jgb_to_ust', from: 'jgb', to: 'ust', intensity: 0, color: '#a855f7' },
+  { id: 'jpy_to_nky', from: 'jpy', to: 'nky', intensity: 0, color: '#06b6d4' },
 
-  // 為替 → 株式への影響
-  { id: 'usdjpy_to_nikkei', from: 'usdjpy', to: 'nikkei', intensity: 0, color: '#AB47BC' },
-  { id: 'dxy_to_em', from: 'dxy', to: 'emerging', intensity: 0, color: '#CE93D8' },
+  // Cross-region
+  { id: 'stoxx_to_spx', from: 'stoxx', to: 'spx', intensity: 0, color: '#3b82f6' },
+  { id: 'csi_to_hsi', from: 'csi', to: 'hsi', intensity: 0, color: '#f87171' },
 ];
