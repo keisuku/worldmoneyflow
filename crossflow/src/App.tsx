@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
-import type { Period, Region, ViewMode, MarketRegime, NetFlowData, YieldCurvePoint, SpreadData, CalendarEvent } from './types';
+import type { Period, Region, ViewMode, MarketRegime, NetFlowData, YieldCurvePoint, SpreadData, CalendarEvent, SizeMode } from './types';
 import { globalNodes } from './data/globalNodes';
 import { japanNodes } from './data/japanNodes';
+import { groundLayers } from './data/groundLayers';
+import { correlationPairs } from './data/correlations';
 import { useMarketData } from './hooks/useMarketData';
 import { useFlowCalculation } from './hooks/useFlowCalculation';
 import { BubbleMap } from './components/BubbleMap';
@@ -19,6 +21,7 @@ function App() {
   const [period, setPeriod] = useState<Period>('1D');
   const [region, setRegion] = useState<Region>('global');
   const [viewMode, setViewMode] = useState<ViewMode>('bubble');
+  const [sizeMode, setSizeMode] = useState<SizeMode>('flow');
 
   const nodes = useMemo(
     () => (region === 'japan' ? japanNodes : globalNodes),
@@ -29,11 +32,11 @@ function App() {
   const flows = useFlowCalculation(marketData);
 
   const regime: MarketRegime = useMemo(() => {
-    const vixData = marketData.get('vix');
+    const vixData = marketData.get('vix') ?? marketData.get('vix2');
     const vixVal = vixData?.price ?? 16;
-    if (vixVal > 30) return { label: 'RISK-OFF', labelJa: 'リスクオフ', color: '#F44336', description: 'High volatility' };
-    if (vixVal > 20) return { label: 'CAUTIOUS', labelJa: '警戒', color: '#FF9800', description: 'Elevated volatility' };
-    return { label: 'RISK-ON', labelJa: 'リスクオン', color: '#4CAF50', description: 'Low volatility' };
+    if (vixVal > 25) return { label: 'RISK-OFF', labelJa: 'リスクオフ', color: '#ef4444', description: 'High volatility', type: 'risk-off' as const };
+    if (vixVal > 20) return { label: 'CAUTIOUS', labelJa: '警戒', color: '#f59e0b', description: 'Elevated volatility', type: 'risk-off' as const };
+    return { label: 'RISK-ON', labelJa: 'リスクオン', color: '#22c55e', description: 'Low volatility', type: 'risk-on' as const };
   }, [marketData]);
 
   const mockNetFlows: NetFlowData[] = [
@@ -79,22 +82,32 @@ function App() {
     >
       <TopBar
         regime={regime}
-        vixValue={marketData.get('vix')?.price ?? null}
-        dxyValue={marketData.get('dxy')?.price ?? null}
+        vixValue={marketData.get('vix')?.price ?? marketData.get('vix2')?.price ?? null}
+        dxyValue={marketData.get('usd')?.price ?? null}
         marketData={marketData}
       />
       <ControlBar
         period={period}
         region={region}
         viewMode={viewMode}
+        sizeMode={sizeMode}
         onPeriodChange={setPeriod}
         onRegionChange={setRegion}
         onViewModeChange={setViewMode}
+        onSizeModeChange={setSizeMode}
       />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div style={{ flex: 1 }}>
-          <BubbleMap nodes={nodes} flows={flows} marketData={marketData} />
+          <BubbleMap
+            nodes={nodes}
+            flows={flows}
+            marketData={marketData}
+            groundLayers={groundLayers}
+            correlationPairs={correlationPairs}
+            regime={regime.type}
+            sizeMode={sizeMode}
+          />
         </div>
 
         <div

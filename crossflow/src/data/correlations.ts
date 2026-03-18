@@ -1,78 +1,35 @@
 import type { CorrelationPair } from '../types';
 
 /**
- * 監視対象の相関ペア
+ * 相関ペア定義（点線で結ぶ）
  * 相関係数は動的に計算される
  */
 export const correlationPairs: CorrelationPair[] = [
-  {
-    id: 'sp500_us10y',
-    nodeA: 'sp500',
-    nodeB: 'us10y',
-    correlation: 0,
-    label: 'S&P 500 vs US 10Y',
-  },
-  {
-    id: 'sp500_gold',
-    nodeA: 'sp500',
-    nodeB: 'gold',
-    correlation: 0,
-    label: 'S&P 500 vs Gold',
-  },
-  {
-    id: 'sp500_vix',
-    nodeA: 'sp500',
-    nodeB: 'vix',
-    correlation: 0,
-    label: 'S&P 500 vs VIX',
-  },
-  {
-    id: 'dxy_gold',
-    nodeA: 'dxy',
-    nodeB: 'gold',
-    correlation: 0,
-    label: 'DXY vs Gold',
-  },
-  {
-    id: 'dxy_emerging',
-    nodeA: 'dxy',
-    nodeB: 'emerging',
-    correlation: 0,
-    label: 'DXY vs EM Equity',
-  },
-  {
-    id: 'usdjpy_nikkei',
-    nodeA: 'usdjpy',
-    nodeB: 'nikkei',
-    correlation: 0,
-    label: 'USD/JPY vs Nikkei',
-  },
-  {
-    id: 'btc_nasdaq',
-    nodeA: 'bitcoin',
-    nodeB: 'nasdaq',
-    correlation: 0,
-    label: 'Bitcoin vs NASDAQ',
-  },
-  {
-    id: 'oil_copper',
-    nodeA: 'wti',
-    nodeB: 'copper',
-    correlation: 0,
-    label: 'WTI vs Copper',
-  },
-  {
-    id: 'us10y_us2y',
-    nodeA: 'us10y',
-    nodeB: 'us2y',
-    correlation: 0,
-    label: 'US 10Y vs 2Y (Curve)',
-  },
-  {
-    id: 'ig_hy',
-    nodeA: 'us_ig',
-    nodeB: 'us_hy',
-    correlation: 0,
-    label: 'IG vs HY Spread',
-  },
+  // US Equity内
+  { id: 'spx_ndx', nodeA: 'spx', nodeB: 'ndx', correlation: 0, label: 'S&P 500 ↔ NASDAQ' },
+  { id: 'ndx_tech', nodeA: 'ndx', nodeB: 'tech', correlation: 0, label: 'NASDAQ ↔ Tech' },
+  { id: 'spx_tech', nodeA: 'spx', nodeB: 'tech', correlation: 0, label: 'S&P 500 ↔ Tech' },
+  { id: 'spx_russ', nodeA: 'spx', nodeB: 'russ', correlation: 0, label: 'S&P 500 ↔ Russell' },
+
+  // Safe haven
+  { id: 'gold_ust', nodeA: 'gold', nodeB: 'ust', correlation: 0, label: 'Gold ↔ US Treasury' },
+  { id: 'gold_silver', nodeA: 'gold', nodeB: 'silver', correlation: 0, label: 'Gold ↔ Silver' },
+  { id: 'ust_jgb', nodeA: 'ust', nodeB: 'jgb', correlation: 0, label: 'UST ↔ JGB' },
+
+  // Cross-region equity
+  { id: 'spx_stoxx', nodeA: 'spx', nodeB: 'stoxx', correlation: 0, label: 'S&P 500 ↔ STOXX' },
+  { id: 'spx_nky', nodeA: 'spx', nodeB: 'nky', correlation: 0, label: 'S&P 500 ↔ Nikkei' },
+
+  // China/EM
+  { id: 'csi_hsi', nodeA: 'csi', nodeB: 'hsi', correlation: 0, label: 'CSI 300 ↔ Hang Seng' },
+  { id: 'csi_em', nodeA: 'csi', nodeB: 'em', correlation: 0, label: 'CSI 300 ↔ MSCI EM' },
+
+  // Commodity
+  { id: 'oil_copper', nodeA: 'oil', nodeB: 'copper', correlation: 0, label: 'Oil ↔ Copper' },
+
+  // FX
+  { id: 'usd_eur', nodeA: 'usd', nodeB: 'eur', correlation: 0, label: 'USD ↔ EUR' },
+
+  // Japan-FX
+  { id: 'nky_jpy', nodeA: 'nky', nodeB: 'jpy', correlation: 0, label: 'Nikkei ↔ JPY' },
 ];
