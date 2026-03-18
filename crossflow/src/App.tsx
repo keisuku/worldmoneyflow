@@ -1,0 +1,142 @@
+import { useState, useMemo } from 'react';
+import type { Period, Region, ViewMode, MarketRegime, NetFlowData, YieldCurvePoint, SpreadData, CalendarEvent } from './types';
+import { globalNodes } from './data/globalNodes';
+import { japanNodes } from './data/japanNodes';
+import { useMarketData } from './hooks/useMarketData';
+import { useFlowCalculation } from './hooks/useFlowCalculation';
+import { BubbleMap } from './components/BubbleMap';
+import { TopBar } from './components/TopBar';
+import { ControlBar } from './components/ControlBar';
+import { PricingBanner } from './components/PricingBanner';
+import { AIAnalysis } from './components/RightPanel/AIAnalysis';
+import { NetFlowBars } from './components/RightPanel/NetFlowBars';
+import { YieldCurve } from './components/RightPanel/YieldCurve';
+import { Spreads } from './components/RightPanel/Spreads';
+import { EventCalendar } from './components/RightPanel/EventCalendar';
+import { DataQuality } from './components/RightPanel/DataQuality';
+
+function App() {
+  const [period, setPeriod] = useState<Period>('1D');
+  const [region, setRegion] = useState<Region>('global');
+  const [viewMode, setViewMode] = useState<ViewMode>('bubble');
+
+  const nodes = useMemo(
+    () => (region === 'japan' ? japanNodes : globalNodes),
+    [region],
+  );
+
+  const { data: marketData } = useMarketData(nodes);
+  const flows = useFlowCalculation(marketData);
+
+  const regime: MarketRegime = useMemo(() => {
+    const vixData = marketData.get('vix');
+    const vixVal = vixData?.price ?? 16;
+    if (vixVal > 30) return { label: 'RISK-OFF', labelJa: 'リスクオフ', color: '#F44336', description: 'High volatility' };
+    if (vixVal > 20) return { label: 'CAUTIOUS', labelJa: '警戒', color: '#FF9800', description: 'Elevated volatility' };
+    return { label: 'RISK-ON', labelJa: 'リスクオン', color: '#4CAF50', description: 'Low volatility' };
+  }, [marketData]);
+
+  const mockNetFlows: NetFlowData[] = [
+    { assetClass: 'equity', label: 'Equity', inflow: 12.3, outflow: 8.1, net: 4.2 },
+    { assetClass: 'bond', label: 'Bonds', inflow: 6.8, outflow: 9.2, net: -2.4 },
+    { assetClass: 'commodity', label: 'Commodities', inflow: 3.1, outflow: 2.0, net: 1.1 },
+    { assetClass: 'crypto', label: 'Crypto', inflow: 2.5, outflow: 1.8, net: 0.7 },
+    { assetClass: 'cash', label: 'Cash', inflow: 5.0, outflow: 8.5, net: -3.5 },
+  ];
+
+  const mockYieldCurve: YieldCurvePoint[] = [
+    { maturity: '3M', yield: 5.3, previousYield: 5.35 },
+    { maturity: '2Y', yield: 4.6, previousYield: 4.7 },
+    { maturity: '5Y', yield: 4.3, previousYield: 4.4 },
+    { maturity: '10Y', yield: 4.25, previousYield: 4.3 },
+    { maturity: '30Y', yield: 4.45, previousYield: 4.5 },
+  ];
+
+  const mockSpreads: SpreadData[] = [
+    { name: 'IG OAS', value: 95, change: -3 },
+    { name: 'HY OAS', value: 350, change: 8 },
+    { name: '2s10s', value: -40, change: 5 },
+    { name: 'TED Spread', value: 25, change: -2 },
+  ];
+
+  const mockEvents: CalendarEvent[] = [
+    { date: 'Mar 19', title: 'FOMC Decision', titleJa: 'FOMC金利決定', impact: 'high' },
+    { date: 'Mar 20', title: 'BOJ Policy', titleJa: '日銀政策決定', impact: 'high' },
+    { date: 'Mar 21', title: 'US Jobless Claims', titleJa: '米失業保険申請件数', impact: 'medium' },
+    { date: 'Mar 22', title: 'EU PMI Flash', titleJa: '欧州PMI速報', impact: 'medium' },
+    { date: 'Mar 25', title: 'US Consumer Confidence', titleJa: '米消費者信頼感', impact: 'low' },
+  ];
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        background: '#0a0e27',
+        color: '#fff',
+      }}
+    >
+      <TopBar
+        regime={regime}
+        vixValue={marketData.get('vix')?.price ?? null}
+        dxyValue={marketData.get('dxy')?.price ?? null}
+        marketData={marketData}
+      />
+      <ControlBar
+        period={period}
+        region={region}
+        viewMode={viewMode}
+        onPeriodChange={setPeriod}
+        onRegionChange={setRegion}
+        onViewModeChange={setViewMode}
+      />
+
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1 }}>
+          <BubbleMap nodes={nodes} flows={flows} marketData={marketData} />
+        </div>
+
+        <div
+          style={{
+            width: '280px',
+            background: 'rgba(13, 17, 23, 0.95)',
+            borderLeft: '1px solid rgba(255,255,255,0.05)',
+            overflowY: 'auto',
+          }}
+        >
+          <AIAnalysis
+            report={{
+              summary:
+                'Risk-on sentiment continues with equity inflows outpacing bond demand. Watch FOMC decision for potential regime shift.',
+              keyFlows: [
+                'Bonds → Equity rotation accelerating',
+                'Cash leaving money market funds',
+                'Crypto seeing fresh inflows',
+              ],
+              risks: [
+                'Yield curve inversion deepening',
+                'HY spreads widening',
+              ],
+              opportunities: [],
+              generatedAt: Date.now(),
+            }}
+          />
+          <NetFlowBars flows={mockNetFlows} />
+          <YieldCurve data={mockYieldCurve} />
+          <Spreads data={mockSpreads} />
+          <EventCalendar events={mockEvents} />
+          <DataQuality
+            totalNodes={nodes.length}
+            activeNodes={marketData.size}
+            lastUpdate={Date.now()}
+          />
+        </div>
+      </div>
+
+      <PricingBanner />
+    </div>
+  );
+}
+
+export default App;
