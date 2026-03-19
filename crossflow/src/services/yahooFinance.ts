@@ -20,7 +20,7 @@ const API_BASE = '/api/yahoo';
 export async function fetchQuotes(symbols: string[]): Promise<YahooQuote[]> {
   const res = await fetch(
     `${API_BASE}/quotes?symbols=${encodeURIComponent(symbols.join(','))}`,
-    { signal: AbortSignal.timeout(15000) },
+    { signal: AbortSignal.timeout(5000) },
   );
   if (!res.ok) throw new Error(`Yahoo Finance API error: ${res.status}`);
   return res.json();

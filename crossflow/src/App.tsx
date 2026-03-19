@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Period, Region, ViewMode, MarketRegime, NetFlowData, YieldCurvePoint, SpreadData, CalendarEvent, SizeMode } from './types';
 import { globalNodes } from './data/globalNodes';
 import { japanNodes } from './data/japanNodes';
@@ -17,7 +17,22 @@ import { Spreads } from './components/RightPanel/Spreads';
 import { EventCalendar } from './components/RightPanel/EventCalendar';
 import { DataQuality } from './components/RightPanel/DataQuality';
 
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function App() {
+  const isMobile = useIsMobile();
   const [period, setPeriod] = useState<Period>('1D');
   const [region, setRegion] = useState<Region>('global');
   const [viewMode, setViewMode] = useState<ViewMode>('bubble');
@@ -75,7 +90,7 @@ function App() {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100dvh',
         background: '#0a0e27',
         color: '#fff',
       }}
@@ -97,8 +112,8 @@ function App() {
         onSizeModeChange={setSizeMode}
       />
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <BubbleMap
             nodes={nodes}
             flows={flows}
@@ -110,41 +125,44 @@ function App() {
           />
         </div>
 
-        <div
-          style={{
-            width: '280px',
-            background: 'rgba(13, 17, 23, 0.95)',
-            borderLeft: '1px solid rgba(255,255,255,0.05)',
-            overflowY: 'auto',
-          }}
-        >
-          <AIAnalysis
-            report={{
-              summary:
-                'Risk-on sentiment continues with equity inflows outpacing bond demand. Watch FOMC decision for potential regime shift.',
-              keyFlows: [
-                'Bonds → Equity rotation accelerating',
-                'Cash leaving money market funds',
-                'Crypto seeing fresh inflows',
-              ],
-              risks: [
-                'Yield curve inversion deepening',
-                'HY spreads widening',
-              ],
-              opportunities: [],
-              generatedAt: Date.now(),
+        {!isMobile && (
+          <div
+            style={{
+              width: '280px',
+              flexShrink: 0,
+              background: 'rgba(13, 17, 23, 0.95)',
+              borderLeft: '1px solid rgba(255,255,255,0.05)',
+              overflowY: 'auto',
             }}
-          />
-          <NetFlowBars flows={mockNetFlows} />
-          <YieldCurve data={mockYieldCurve} />
-          <Spreads data={mockSpreads} />
-          <EventCalendar events={mockEvents} />
-          <DataQuality
-            totalNodes={nodes.length}
-            activeNodes={marketData.size}
-            lastUpdate={Date.now()}
-          />
-        </div>
+          >
+            <AIAnalysis
+              report={{
+                summary:
+                  'Risk-on sentiment continues with equity inflows outpacing bond demand. Watch FOMC decision for potential regime shift.',
+                keyFlows: [
+                  'Bonds → Equity rotation accelerating',
+                  'Cash leaving money market funds',
+                  'Crypto seeing fresh inflows',
+                ],
+                risks: [
+                  'Yield curve inversion deepening',
+                  'HY spreads widening',
+                ],
+                opportunities: [],
+                generatedAt: Date.now(),
+              }}
+            />
+            <NetFlowBars flows={mockNetFlows} />
+            <YieldCurve data={mockYieldCurve} />
+            <Spreads data={mockSpreads} />
+            <EventCalendar events={mockEvents} />
+            <DataQuality
+              totalNodes={nodes.length}
+              activeNodes={marketData.size}
+              lastUpdate={Date.now()}
+            />
+          </div>
+        )}
       </div>
 
       <PricingBanner />
