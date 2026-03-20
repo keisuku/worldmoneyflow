@@ -1,292 +1,46 @@
-import { useRef, useCallback, useState } from 'react';
-import type { MarketNode, Flow, FlowParticle, MarketDataPoint, GroundLayer, CorrelationPair, SizeMode } from '../types';
-import { calcBubbleRadius, calcBubbleBorder } from '../types';
-import { useAnimation } from '../hooks/useAnimation';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { ASSET_POOLS, CATEGORY_META, TOTAL_ALL } from '../data/globalAssets';
+import type { Category, GlobalAsset } from '../data/globalAssets';
 
-interface BubbleMapProps {
-  nodes: MarketNode[];
-  flows: Flow[];
-  marketData: Map<string, MarketDataPoint>;
-  groundLayers: GroundLayer[];
-  correlationPairs: CorrelationPair[];
-  regime: 'risk-on' | 'risk-off';
-  sizeMode: SizeMode;
+// ─── Cluster centers (normalized 0–1) per category ───
+const CLUSTER_CENTERS: Record<Category, { x: number; y: number }> = {
+  equities:      { x: 0.28, y: 0.48 },
+  bonds:         { x: 0.68, y: 0.45 },
+  'real-estate': { x: 0.75, y: 0.20 },
+  gold:          { x: 0.45, y: 0.78 },
+  crypto:        { x: 0.18, y: 0.78 },
+  private:       { x: 0.82, y: 0.68 },
+  institutional: { x: 0.50, y: 0.50 },
+};
+
+// ─── Flow arrows (narrative arcs) ───
+const FLOW_ARROWS: { from: Category; to: Category; label: string }[] = [
+  { from: 'equities', to: 'bonds', label: 'Risk-off' },
+  { from: 'equities', to: 'gold', label: 'Safe haven' },
+  { from: 'bonds', to: 'crypto', label: 'Speculative' },
+  { from: 'equities', to: 'private', label: 'Alternatives' },
+];
+
+// ─── Types for force sim nodes ───
+interface SimNode {
+  asset: GlobalAsset;
+  x: number;
+  y: number;
+  r: number;
 }
 
-/**
- * メインCanvas - バブルチャート + パーティクルアニメーション + 地面3レイヤー + 相関点線
- */
-export function BubbleMap({
-  nodes,
-  flows,
-  marketData,
-  groundLayers,
-  correlationPairs: corrPairs,
-  regime,
-  sizeMode,
-}: BubbleMapProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const particlesRef = useRef<Map<string, FlowParticle[]>>(new Map());
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-
-  const draw = useCallback(
-    (ctx: CanvasRenderingContext2D, deltaTime: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-
-      drawBackground(ctx, w, h);
-      drawGroundLayers(ctx, w, h, groundLayers, regime);
-      drawCorrelationLines(ctx, corrPairs, nodes, w, h);
-      updateAndDrawParticles(ctx, flows, nodes, particlesRef.current, w, h, deltaTime);
-
-      for (const node of nodes) {
-        const data = marketData.get(node.id);
-        drawBubble(ctx, node, data, w, h, hoveredNode === node.id, regime, sizeMode);
-      }
-    },
-    [nodes, flows, marketData, hoveredNode, groundLayers, corrPairs, regime, sizeMode],
-  );
-
-  useAnimation(canvasRef, draw);
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-
-      let found: string | null = null;
-      for (const node of nodes) {
-        const nx = node.position.x * rect.width;
-        const ny = node.position.y * rect.height;
-        const r = calcBubbleRadius({
-          mode: sizeMode,
-          baseMass: node.baseMass,
-          flow: marketData.get(node.id)?.flow ?? 0,
-          regime,
-          isVix: node.category === 'volatility',
-        });
-        const dist = Math.sqrt((mx - nx) ** 2 + (my - ny) ** 2);
-        if (dist < r) {
-          found = node.id;
-          break;
-        }
-      }
-      setHoveredNode(found);
-    },
-    [nodes, sizeMode, regime, marketData],
-  );
-
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block' }}
-      onMouseMove={handleMouseMove}
-    />
-  );
+// ─── Helpers ───
+function formatTrillions(v: number): string {
+  if (v >= 1) return `$${v.toFixed(1)}T`;
+  if (v >= 0.01) return `$${(v * 1000).toFixed(0)}B`;
+  return `$${(v * 1000).toFixed(1)}B`;
 }
 
-// ===== Drawing Functions =====
-
-function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, '#0a0e27');
-  gradient.addColorStop(0.7, '#0d1117');
-  gradient.addColorStop(1, '#1a1a2e');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, w, h);
-}
-
-function drawGroundLayers(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  layers: GroundLayer[],
-  regime: 'risk-on' | 'risk-off',
-) {
-  const groundStart = h * 0.78;
-  const layerHeight = (h - groundStart) / layers.length;
-
-  for (const layer of layers) {
-    const y = groundStart + layer.layerIndex * layerHeight;
-    const baseColor = regime === 'risk-off' ? layer.riskOffColor : layer.riskOnColor;
-    const expansion = layer.expansion;
-
-    const gradient = ctx.createLinearGradient(0, y, 0, y + layerHeight);
-    gradient.addColorStop(0, hexToRgba(baseColor, 0.08 + expansion * 0.15));
-    gradient.addColorStop(1, hexToRgba(baseColor, 0.15 + expansion * 0.2));
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, y, w, layerHeight);
-
-    // 境界線
-    ctx.strokeStyle = hexToRgba(baseColor, 0.25);
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-
-    // ラベル
-    ctx.fillStyle = hexToRgba(layer.color, 0.5);
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(layer.label, w - 12, y + layerHeight / 2 + 3);
-  }
-}
-
-function drawCorrelationLines(
-  ctx: CanvasRenderingContext2D,
-  pairs: CorrelationPair[],
-  nodes: MarketNode[],
-  w: number,
-  h: number,
-) {
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-
-  ctx.save();
-  ctx.setLineDash([4, 6]);
-  ctx.lineWidth = 0.6;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-
-  for (const pair of pairs) {
-    const a = nodeMap.get(pair.nodeA);
-    const b = nodeMap.get(pair.nodeB);
-    if (!a || !b) continue;
-
-    ctx.beginPath();
-    ctx.moveTo(a.position.x * w, a.position.y * h);
-    ctx.lineTo(b.position.x * w, b.position.y * h);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
-function drawBubble(
-  ctx: CanvasRenderingContext2D,
-  node: MarketNode,
-  data: MarketDataPoint | undefined,
-  w: number,
-  h: number,
-  isHovered: boolean,
-  regime: 'risk-on' | 'risk-off',
-  sizeMode: SizeMode,
-) {
-  const x = node.position.x * w;
-  const y = node.position.y * h;
-  const flow = data?.flow ?? 0;
-
-  const radius = calcBubbleRadius({
-    mode: sizeMode,
-    baseMass: node.baseMass,
-    flow,
-    regime,
-    isVix: node.category === 'volatility',
-  }) * (isHovered ? 1.12 : 1);
-
-  const border = calcBubbleBorder(flow);
-
-  // グロー
-  ctx.save();
-  ctx.shadowColor = node.color;
-  ctx.shadowBlur = isHovered ? 25 : 12;
-
-  // バブル本体
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = hexToRgba(node.color, 0.25);
-  ctx.fill();
-
-  // 枠線（フロー色）
-  ctx.strokeStyle = border.color;
-  ctx.lineWidth = isHovered ? border.width + 0.5 : border.width;
-  ctx.stroke();
-  ctx.restore();
-
-  // ラベル
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${Math.max(9, radius * 0.32)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(node.label, x, y - 6);
-
-  // 変動率
-  if (data) {
-    const changeColor = data.change1d >= 0 ? '#22c55e' : '#ef4444';
-    const sign = data.change1d >= 0 ? '+' : '';
-    ctx.fillStyle = changeColor;
-    ctx.font = `${Math.max(8, radius * 0.24)}px monospace`;
-    ctx.fillText(`${sign}${data.change1d.toFixed(2)}%`, x, y + 8);
-  }
-
-  // baseMass (small, below change)
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = `${Math.max(7, radius * 0.18)}px monospace`;
-  ctx.fillText(`$${node.baseMass}T`, x, y + 18);
-}
-
-function updateAndDrawParticles(
-  ctx: CanvasRenderingContext2D,
-  flows: Flow[],
-  nodes: MarketNode[],
-  particles: Map<string, FlowParticle[]>,
-  w: number,
-  h: number,
-  deltaTime: number,
-) {
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-
-  for (const flow of flows) {
-    if (Math.abs(flow.intensity) < 0.05) continue;
-
-    const fromNode = nodeMap.get(flow.from);
-    const toNode = nodeMap.get(flow.to);
-    if (!fromNode || !toNode) continue;
-
-    if (!particles.has(flow.id)) {
-      particles.set(flow.id, []);
-    }
-    const list = particles.get(flow.id)!;
-
-    const spawnRate = Math.abs(flow.intensity) * 3;
-    if (Math.random() < spawnRate * deltaTime) {
-      list.push({
-        x: fromNode.position.x * w,
-        y: fromNode.position.y * h,
-        progress: 0,
-        speed: 0.3 + Math.random() * 0.4,
-        opacity: 0.6 + Math.random() * 0.4,
-        size: 2 + Math.random() * 3,
-      });
-    }
-
-    for (let i = list.length - 1; i >= 0; i--) {
-      const p = list[i];
-      p.progress += p.speed * deltaTime;
-
-      if (p.progress >= 1) {
-        list.splice(i, 1);
-        continue;
-      }
-
-      const fx = fromNode.position.x * w;
-      const fy = fromNode.position.y * h;
-      const tx = toNode.position.x * w;
-      const ty = toNode.position.y * h;
-      p.x = fx + (tx - fx) * p.progress;
-      p.y = fy + (ty - fy) * p.progress;
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = hexToRgba(flow.color, p.opacity * (1 - p.progress * 0.5));
-      ctx.fill();
-    }
-  }
+function formatChange(v: number): string {
+  const sign = v >= 0 ? '+' : '';
+  if (Math.abs(v) >= 1000) return `${sign}${(v / 1000).toFixed(1)}T`;
+  return `${sign}${v.toFixed(0)}B`;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -294,4 +48,470 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// ─── Force simulation (pure function, no D3) ───
+function runForceSimulation(
+  assets: GlobalAsset[],
+  width: number,
+  height: number,
+): SimNode[] {
+  const maxVal = Math.max(...assets.map((a) => a.totalValue));
+  const maxR = Math.min(width, height) * 0.13;
+  const minR = 8;
+
+  const nodes: SimNode[] = assets.map((asset) => {
+    const center = CLUSTER_CENTERS[asset.category] ?? { x: 0.5, y: 0.5 };
+    const r = Math.max(minR, maxR * Math.sqrt(asset.totalValue / maxVal));
+    return {
+      asset,
+      x: center.x * width + (Math.random() - 0.5) * 60,
+      y: center.y * height + (Math.random() - 0.5) * 60,
+      r,
+    };
+  });
+
+  // Run 300 iterations
+  const attractionStrength = 0.012;
+  const padding = 3;
+
+  for (let iter = 0; iter < 300; iter++) {
+    const alpha = 1 - iter / 300;
+
+    // Category attraction — pull toward cluster center
+    for (const node of nodes) {
+      const center = CLUSTER_CENTERS[node.asset.category] ?? { x: 0.5, y: 0.5 };
+      const tx = center.x * width;
+      const ty = center.y * height;
+      node.x += (tx - node.x) * attractionStrength * alpha;
+      node.y += (ty - node.y) * attractionStrength * alpha;
+    }
+
+    // Collision avoidance
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDist = a.r + b.r + padding;
+        if (dist < minDist) {
+          const overlap = (minDist - dist) / 2;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          a.x -= nx * overlap * 0.5;
+          a.y -= ny * overlap * 0.5;
+          b.x += nx * overlap * 0.5;
+          b.y += ny * overlap * 0.5;
+        }
+      }
+    }
+
+    // Keep within bounds
+    for (const node of nodes) {
+      node.x = Math.max(node.r + 5, Math.min(width - node.r - 5, node.x));
+      node.y = Math.max(node.r + 5, Math.min(height - node.r - 5, node.y));
+    }
+  }
+
+  return nodes;
+}
+
+// ─── SVG curved arrow path ───
+function curvedArrowPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): string {
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  // Perpendicular offset for curvature
+  const offset = Math.sqrt(dx * dx + dy * dy) * 0.25;
+  const cx = mx - (dy / Math.sqrt(dx * dx + dy * dy)) * offset;
+  const cy = my + (dx / Math.sqrt(dx * dx + dy * dy)) * offset;
+  return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+}
+
+// ─── Keyframe styles (injected once) ───
+const glowKeyframes = `
+@keyframes bubble-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--glow-color)); }
+  50% { filter: drop-shadow(0 0 18px var(--glow-color)) drop-shadow(0 0 30px var(--glow-color)); }
+}
+@keyframes dash-flow {
+  to { stroke-dashoffset: -20; }
+}
+`;
+
+// ─── Component ───
+export default function BubbleMap() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 1200, height: 700 });
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // Measure container
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setSize({ width: rect.width, height: rect.height });
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Run force simulation once per size change
+  const nodes = useMemo(
+    () => runForceSimulation(ASSET_POOLS, size.width, size.height),
+    [size.width, size.height],
+  );
+
+  // Node map for arrow lookups
+  const categoryCenter = useMemo(() => {
+    const centers: Partial<Record<Category, { x: number; y: number; count: number }>> = {};
+    for (const n of nodes) {
+      const cat = n.asset.category;
+      if (!centers[cat]) centers[cat] = { x: 0, y: 0, count: 0 };
+      centers[cat]!.x += n.x;
+      centers[cat]!.y += n.y;
+      centers[cat]!.count += 1;
+    }
+    const result: Partial<Record<Category, { x: number; y: number }>> = {};
+    for (const [cat, val] of Object.entries(centers) as [Category, { x: number; y: number; count: number }][]) {
+      result[cat] = { x: val.x / val.count, y: val.y / val.count };
+    }
+    return result;
+  }, [nodes]);
+
+  const hoveredNode = hoveredId ? nodes.find((n) => n.asset.id === hoveredId) : null;
+
+  const totalDisplay = (TOTAL_ALL / 1).toFixed(1);
+
+  const categories = Object.entries(CATEGORY_META).filter(
+    ([key]) => key !== 'institutional',
+  ) as [Category, (typeof CATEGORY_META)[Category]][];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.8, ease: 'easeOut' }}
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '75vh',
+        minHeight: 500,
+        background: 'linear-gradient(180deg, #0a0e27 0%, #0d1117 70%, #1a1a2e 100%)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
+    >
+      <style>{glowKeyframes}</style>
+
+      {/* Title */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          left: 0,
+          right: 0,
+          textAlign: 'center',
+          zIndex: 10,
+          pointerEvents: 'none',
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontSize: 'clamp(16px, 2.2vw, 24px)',
+            fontWeight: 700,
+            color: '#e2e8f0',
+            letterSpacing: '0.02em',
+          }}
+        >
+          Global Capital Pools — ${totalDisplay}T Total
+        </h2>
+      </div>
+
+      {/* Category legend */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 48,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'center',
+          flexWrap: 'wrap',
+          gap: '6px 16px',
+          zIndex: 10,
+          pointerEvents: 'none',
+          padding: '0 16px',
+        }}
+      >
+        {categories.map(([key, meta]) => (
+          <span
+            key={key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 'clamp(10px, 1.2vw, 13px)',
+              color: '#94a3b8',
+            }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: meta.color,
+                display: 'inline-block',
+                flexShrink: 0,
+              }}
+            />
+            {meta.label}
+          </span>
+        ))}
+      </div>
+
+      {/* SVG container */}
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', paddingTop: 76 }}
+      >
+        <svg
+          width={size.width}
+          height={size.height}
+          viewBox={`0 0 ${size.width} ${size.height}`}
+          style={{ display: 'block', width: '100%', height: '100%' }}
+        >
+          <defs>
+            <marker
+              id="arrowhead"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.35)" />
+            </marker>
+          </defs>
+
+          {/* Flow arrows */}
+          {FLOW_ARROWS.map((arrow, i) => {
+            const fromC = categoryCenter[arrow.from];
+            const toC = categoryCenter[arrow.to];
+            if (!fromC || !toC) return null;
+            const path = curvedArrowPath(fromC.x, fromC.y, toC.x, toC.y);
+            const midX = (fromC.x + toC.x) / 2;
+            const midY = (fromC.y + toC.y) / 2;
+            const dx = toC.x - fromC.x;
+            const dy = toC.y - fromC.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const offsetAmt = dist * 0.12;
+            const labelX = midX - (dy / dist) * offsetAmt;
+            const labelY = midY + (dx / dist) * offsetAmt;
+            return (
+              <g key={i}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.18)"
+                  strokeWidth={1.5}
+                  strokeDasharray="6 4"
+                  markerEnd="url(#arrowhead)"
+                  style={{ animation: 'dash-flow 1.5s linear infinite' }}
+                />
+                <text
+                  x={labelX}
+                  y={labelY}
+                  textAnchor="middle"
+                  fill="rgba(255,255,255,0.4)"
+                  fontSize={Math.max(10, size.width * 0.009)}
+                  fontStyle="italic"
+                >
+                  {arrow.label}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Bubbles */}
+          {nodes.map((node) => {
+            const { asset, x, y, r } = node;
+            const cat = CATEGORY_META[asset.category];
+            const isHovered = hoveredId === asset.id;
+            const baseOpacity = asset.investable ? 0.75 : 0.4;
+            const fillOpacity = isHovered ? Math.min(baseOpacity + 0.2, 0.95) : baseOpacity;
+            const shouldPulse = asset.volatility >= 0.8;
+            const showName = r > 18;
+            const fontSize = Math.max(8, Math.min(14, r * 0.26));
+            const valueFontSize = Math.max(7, Math.min(12, r * 0.22));
+
+            return (
+              <g
+                key={asset.id}
+                onMouseEnter={() => setHoveredId(asset.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{
+                  cursor: 'pointer',
+                  ['--glow-color' as string]: cat.color,
+                  ...(shouldPulse
+                    ? { animation: 'bubble-pulse 2s ease-in-out infinite' }
+                    : {}),
+                }}
+              >
+                {/* Glow ring for high-volatility */}
+                {shouldPulse && (
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={r + 4}
+                    fill="none"
+                    stroke={cat.color}
+                    strokeWidth={1.5}
+                    opacity={0.3}
+                  />
+                )}
+
+                {/* Main bubble */}
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={isHovered ? r * 1.08 : r}
+                  fill={hexToRgba(cat.color, fillOpacity * 0.4)}
+                  stroke={cat.color}
+                  strokeWidth={isHovered ? 2.5 : 1.2}
+                  opacity={1}
+                  style={{
+                    transition: 'r 0.2s ease, stroke-width 0.2s ease',
+                    filter: isHovered
+                      ? `drop-shadow(0 0 12px ${cat.color})`
+                      : shouldPulse
+                        ? undefined
+                        : 'none',
+                  }}
+                />
+
+                {/* Name label */}
+                {showName && (
+                  <text
+                    x={x}
+                    y={y - valueFontSize * 0.5}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="#e2e8f0"
+                    fontSize={fontSize}
+                    fontWeight={600}
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {asset.nameShort}
+                  </text>
+                )}
+
+                {/* Value label */}
+                <text
+                  x={x}
+                  y={showName ? y + fontSize * 0.7 : y}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="rgba(226,232,240,0.8)"
+                  fontSize={valueFontSize}
+                  fontFamily="monospace"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {formatTrillions(asset.totalValue)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* Hover tooltip */}
+      {hoveredNode && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(hoveredNode.x + hoveredNode.r + 16, size.width - 240),
+            top: Math.max(hoveredNode.y - 40 + 76, 90),
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: `1px solid ${CATEGORY_META[hoveredNode.asset.category].color}`,
+            borderRadius: 8,
+            padding: '10px 14px',
+            zIndex: 20,
+            pointerEvents: 'none',
+            minWidth: 180,
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#f1f5f9',
+              marginBottom: 4,
+            }}
+          >
+            {hoveredNode.asset.emoji} {hoveredNode.asset.name}
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>
+            {CATEGORY_META[hoveredNode.asset.category].label}
+            {hoveredNode.asset.region ? ` — ${hoveredNode.asset.region}` : ''}
+          </div>
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: CATEGORY_META[hoveredNode.asset.category].color,
+              margin: '4px 0',
+            }}
+          >
+            {formatTrillions(hoveredNode.asset.totalValue)}
+          </div>
+          <div style={{ fontSize: 12, display: 'flex', gap: 12 }}>
+            <span
+              style={{
+                color:
+                  hoveredNode.asset.changes.d1 >= 0 ? '#22c55e' : '#ef4444',
+              }}
+            >
+              1d: {formatChange(hoveredNode.asset.changes.d1)}
+            </span>
+            <span
+              style={{
+                color:
+                  hoveredNode.asset.changes.w1 >= 0 ? '#22c55e' : '#ef4444',
+              }}
+            >
+              1w: {formatChange(hoveredNode.asset.changes.w1)}
+            </span>
+          </div>
+          {!hoveredNode.asset.investable && (
+            <div
+              style={{
+                fontSize: 10,
+                color: '#64748b',
+                marginTop: 4,
+                fontStyle: 'italic',
+              }}
+            >
+              Illiquid / non-tradeable
+            </div>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
 }
