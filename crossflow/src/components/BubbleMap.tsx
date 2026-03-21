@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ASSET_POOLS, CATEGORY_META } from '../data/globalAssets';
 import { regimeData } from '../data/mockFlowData';
+import { T } from '../theme';
 import type { Category, GlobalAsset, AssetChanges } from '../data/globalAssets';
 
 // ─── Time periods ───
@@ -52,7 +53,7 @@ function runForceSimulation(
   const maxVal = Math.max(...assets.map((a) => a.totalValue));
   // Much bigger bubbles — fill the viewport
   const maxR = Math.min(width, height) * 0.28;
-  const minR = Math.min(width, height) * 0.025;
+  const minR = Math.min(width, height) * 0.035;
 
   const nodes: SimNode[] = assets.map((asset) => {
     const r = Math.max(minR, maxR * Math.sqrt(asset.totalValue / maxVal));
@@ -216,7 +217,7 @@ export default function BubbleMap() {
     : 1 - riskOnIntensity * 0.10;
 
   // Colors reversed: risk-off = red, risk-on = green
-  const waveColor = isRiskOff ? '#ef4444' : '#10b981';
+  const waveColor = isRiskOff ? T.negative : T.positive;
   const waveOpacity = isRiskOff ? 0.3 + riskOffIntensity * 0.2 : 0.25 + riskOnIntensity * 0.25;
 
   const wavePath = generateWavePath(size.width, size.height, waveHeight, waveTime);
@@ -269,8 +270,8 @@ export default function BubbleMap() {
                 padding: '8px 0',
                 border: 'none',
                 borderBottom: active ? '2px solid #22c55e' : '2px solid transparent',
-                background: active ? 'rgba(34,197,94,0.08)' : 'transparent',
-                color: active ? '#22c55e' : '#64748b',
+                background: active ? 'rgba(0,212,170,0.08)' : 'transparent',
+                color: active ? T.positive : '#64748b',
                 fontSize: 'clamp(13px, 2vw, 16px)',
                 fontWeight: 700,
                 cursor: 'pointer',
@@ -294,7 +295,7 @@ export default function BubbleMap() {
           alignItems: 'center',
           gap: 5,
           fontSize: 10,
-          color: isRiskOff ? '#ef4444' : '#10b981',
+          color: isRiskOff ? T.negative : T.positive,
           fontWeight: 700,
           opacity: 0.8,
         }}
@@ -304,11 +305,11 @@ export default function BubbleMap() {
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: isRiskOff ? '#ef4444' : '#10b981',
-            boxShadow: `0 0 6px ${isRiskOff ? '#ef4444' : '#10b981'}`,
+            background: isRiskOff ? T.negative : T.positive,
+            boxShadow: `0 0 6px ${isRiskOff ? T.negative : T.positive}`,
           }}
         />
-        {isRiskOff ? 'RISK OFF' : 'RISK ON'}
+        {isRiskOff ? 'リスクオフ' : 'リスクオン'}
       </div>
 
       {/* Category legend — small, top-left */}
@@ -392,11 +393,11 @@ export default function BubbleMap() {
             // Bubble color based on change direction (like Crypto Bubbles)
             const bubbleColor = changeB === 0
               ? '#555'
-              : isPositive ? '#22c55e' : '#ef4444';
+              : isPositive ? T.positive : T.negative;
             const bubbleFill = changeB === 0
               ? 'rgba(80,80,80,0.35)'
               : isPositive
-                ? `rgba(34,197,94,${0.15 + Math.min(0.3, Math.abs(changePct) * 0.02)})`
+                ? `rgba(0,212,170,${0.15 + Math.min(0.3, Math.abs(changePct) * 0.02)})`
                 : `rgba(239,68,68,${0.15 + Math.min(0.3, Math.abs(changePct) * 0.02)})`;
 
             // Text sizing — proportional to bubble
@@ -514,7 +515,7 @@ export default function BubbleMap() {
             x={size.width / 2}
             y={size.height - waveHeight * 0.3}
             textAnchor="middle"
-            fill={isRiskOff ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)'}
+            fill={isRiskOff ? 'rgba(239,68,68,0.6)' : 'rgba(0,212,170,0.6)'}
             fontSize={Math.max(9, size.width * 0.011)}
             fontWeight={600}
           >
@@ -591,7 +592,7 @@ export default function BubbleMap() {
                   <span
                     key={tp.key}
                     style={{
-                      color: v >= 0 ? '#22c55e' : '#ef4444',
+                      color: v >= 0 ? T.positive : T.negative,
                       fontWeight: active ? 700 : 400,
                       background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
                       padding: '1px 3px',

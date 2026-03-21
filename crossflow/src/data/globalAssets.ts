@@ -35,7 +35,7 @@ export interface GlobalAsset {
 
 export const CATEGORY_META: Record<Category, { label: string; color: string; labelJa: string }> = {
   equities:      { label: 'Equities',        color: '#3b82f6', labelJa: '株式' },
-  bonds:         { label: 'Bonds',           color: '#10b981', labelJa: '債券' },
+  bonds:         { label: 'Bonds',           color: '#00d4aa', labelJa: '債券' },
   'real-estate': { label: 'Real Estate',     color: '#f59e0b', labelJa: '不動産' },
   crypto:        { label: 'Crypto',          color: '#8b5cf6', labelJa: '暗号資産' },
   gold:          { label: 'Gold & Cmdty',    color: '#eab308', labelJa: '金・商品' },

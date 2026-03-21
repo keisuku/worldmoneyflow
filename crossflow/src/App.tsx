@@ -11,7 +11,7 @@ export default function App() {
       color: '#e8eaed',
     }}>
       <Header />
-      <main style={{ padding: '0 0 40px' }}>
+      <main style={{ padding: '0 8px 40px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <BubbleMap />
         <AssetTable />
         <MarketInsights />
