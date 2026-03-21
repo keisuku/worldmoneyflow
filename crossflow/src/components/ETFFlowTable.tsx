@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { etfFlows } from '../data/mockFlowData.ts';
-import type { MockETF } from '../data/mockFlowData.ts';
+import { etfFlows } from '../data/marketData.ts';
+import type { ETFData } from '../data/marketData.ts';
 
 type SortKey = 'ticker' | 'price' | 'change1d' | 'weeklyFlow';
 
@@ -89,7 +89,7 @@ function Th({
   );
 }
 
-function Row({ etf, maxFlow }: { etf: MockETF; maxFlow: number }) {
+function Row({ etf, maxFlow }: { etf: ETFData; maxFlow: number }) {
   const changeColor = etf.change1d >= 0 ? '#00d4aa' : '#ff4757';
   const flowColor = etf.weeklyFlow >= 0 ? '#00d4aa' : '#ff4757';
   const barWidth = Math.abs(etf.weeklyFlow) / maxFlow;

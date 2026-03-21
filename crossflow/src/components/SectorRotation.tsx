@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { sectorData } from '../data/mockFlowData.ts';
+import { sectorData } from '../data/marketData.ts';
 
 const quadrantColors: Record<string, string> = {
   leading: '#00d4aa',

@@ -43,7 +43,7 @@ export const CATEGORY_META: Record<Category, { label: string; color: string; lab
   institutional: { label: 'Institutional',   color: '#6366f1', labelJa: '機関投資家' },
 };
 
-// "The Great De-Risking" — March 2026 scenario
+// "The Great De-Risking" — March 2026
 // Equities selling off, bonds/gold bid, crypto mixed
 export const GLOBAL_ASSETS: GlobalAsset[] = [
   // ── Real Estate ($393T total, mostly illiquid) ──

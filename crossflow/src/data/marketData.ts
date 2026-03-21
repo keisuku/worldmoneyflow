@@ -1,6 +1,6 @@
 /**
- * Mock market data reflecting March 2026 conditions:
- * "The Great De-Risking" theme from BofA FMS
+ * Market data — March 2026
+ * "The Great De-Risking" — BofA Fund Manager Survey
  * - Fund managers cutting equity allocation to lowest since Nov 2023
  * - Cash levels rising to 4.1%
  * - Rotation from US to Europe and EM
@@ -8,7 +8,7 @@
  * - Long Semis is the second most crowded trade (35%)
  */
 
-export interface MockETF {
+export interface ETFData {
   ticker: string;
   name: string;
   price: number;
@@ -17,7 +17,7 @@ export interface MockETF {
   category: string;
 }
 
-export interface MockFlowMetric {
+export interface FlowMetric {
   id: string;
   label: string;
   value: number; // weekly net flow in $B
@@ -26,7 +26,7 @@ export interface MockFlowMetric {
   positive: boolean;
 }
 
-export interface MockSectorData {
+export interface SectorData {
   name: string;
   relPerformance: number; // vs S&P 500, %
   momentum: number; // improving/declining score -1 to 1
@@ -34,13 +34,13 @@ export interface MockSectorData {
   color: string;
 }
 
-export interface MockYieldPoint {
+export interface YieldPoint {
   maturity: string;
   current: number;
   previous: number;
 }
 
-export interface MockCentralBankData {
+export interface CentralBankData {
   date: string;
   fed: number;
   ecb: number;
@@ -48,7 +48,7 @@ export interface MockCentralBankData {
   pboc: number;
 }
 
-export interface MockRateDecision {
+export interface RateDecision {
   bank: string;
   date: string;
   action: string;
@@ -83,7 +83,7 @@ export const headerIndicators = {
 };
 
 // ETF Flow Table
-export const etfFlows: MockETF[] = [
+export const etfFlows: ETFData[] = [
   { ticker: 'SPY', name: 'S&P 500', price: 5342.18, change1d: -0.82, weeklyFlow: -8.4, category: 'US Equity' },
   { ticker: 'QQQ', name: 'Nasdaq 100', price: 17856.42, change1d: -1.14, weeklyFlow: -5.2, category: 'US Equity' },
   { ticker: 'IWM', name: 'Russell 2000', price: 1987.34, change1d: -0.67, weeklyFlow: -1.8, category: 'US Equity' },
@@ -97,7 +97,7 @@ export const etfFlows: MockETF[] = [
 ];
 
 // Flow Cards data
-export const flowMetrics: MockFlowMetric[] = [
+export const flowMetrics: FlowMetric[] = [
   {
     id: 'equity',
     label: 'Equity Flows',
@@ -133,7 +133,7 @@ export const flowMetrics: MockFlowMetric[] = [
 ];
 
 // Sector Rotation data
-export const sectorData: MockSectorData[] = [
+export const sectorData: SectorData[] = [
   { name: 'Tech', relPerformance: -2.8, momentum: -0.4, quadrant: 'weakening', color: '#ff4757' },
   { name: 'Financials', relPerformance: 1.2, momentum: 0.3, quadrant: 'leading', color: '#00d4aa' },
   { name: 'Healthcare', relPerformance: 0.8, momentum: 0.6, quadrant: 'leading', color: '#00d4aa' },
@@ -148,7 +148,7 @@ export const sectorData: MockSectorData[] = [
 ];
 
 // Yield Curve
-export const yieldCurveData: MockYieldPoint[] = [
+export const yieldCurveData: YieldPoint[] = [
   { maturity: '3M', current: 4.82, previous: 4.95 },
   { maturity: '6M', current: 4.68, previous: 4.78 },
   { maturity: '1Y', current: 4.42, previous: 4.55 },
@@ -159,7 +159,7 @@ export const yieldCurveData: MockYieldPoint[] = [
 ];
 
 // Central Bank Balance Sheets (in $T, monthly data over 24 months)
-export const centralBankData: MockCentralBankData[] = [
+export const centralBankData: CentralBankData[] = [
   { date: 'Apr 24', fed: 7.4, ecb: 6.8, boj: 5.2, pboc: 5.8 },
   { date: 'Jun 24', fed: 7.3, ecb: 6.7, boj: 5.3, pboc: 5.9 },
   { date: 'Aug 24', fed: 7.2, ecb: 6.6, boj: 5.3, pboc: 6.0 },
@@ -175,7 +175,7 @@ export const centralBankData: MockCentralBankData[] = [
   { date: 'Mar 26', fed: 6.5, ecb: 5.9, boj: 5.9, pboc: 6.9 },
 ];
 
-export const rateDecisions: MockRateDecision[] = [
+export const rateDecisions: RateDecision[] = [
   { bank: 'Fed', date: 'Mar 19', action: 'Hold 4.25-4.50%', color: '#4facfe' },
   { bank: 'BOJ', date: 'Mar 20', action: 'Hold 0.50%', color: '#ff4757' },
   { bank: 'ECB', date: 'Apr 3', action: 'Expected -25bp', color: '#ffd700' },

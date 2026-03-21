@@ -8,7 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { centralBankData, rateDecisions } from '../data/mockFlowData.ts';
+import { centralBankData, rateDecisions } from '../data/marketData.ts';
 
 export default function CentralBankWatch() {
   const latest = centralBankData[centralBankData.length - 1];

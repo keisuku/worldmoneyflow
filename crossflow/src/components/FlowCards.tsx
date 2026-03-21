@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { flowMetrics } from '../data/mockFlowData.ts';
+import { flowMetrics } from '../data/marketData.ts';
 
 const icons: Record<string, string> = {
   equity: '\u{1F4C9}',

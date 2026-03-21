@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { regimeData } from '../data/mockFlowData.ts';
+import { regimeData } from '../data/marketData.ts';
 
 function scoreToColor(score: number): string {
   if (score >= 65) return '#00d4aa';

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GLOBAL_ASSETS, CATEGORY_META, ASSET_POOLS, type Category } from '../data/globalAssets';
-import { regimeData } from '../data/mockFlowData';
+import { regimeData } from '../data/marketData';
 import { KEY_EVENTS, ASSET_INSIGHTS, CATEGORY_SUMMARIES, DEFAULT_OPEN_CATS } from '../data/marketInsights';
 import { T, REGIME_JA, DATA_TIMESTAMP } from '../theme';
 
@@ -251,8 +251,8 @@ export default function MarketInsights() {
 
       {/* Footer */}
       <div style={{ padding: '10px 14px', borderTop: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, lineHeight: 1.5 }}>
-        ※ 上記はモックデータに基づく解説であり、投資助言ではありません。
-        ソース: Visual Capitalist, Goldman Sachs, Savills, CoinMarketCap, SIFMA, BofA FMS, Thinking Ahead Institute
+        ※ 本情報は投資助言を目的としたものではありません。投資判断はご自身の責任で行ってください。
+        ソース: Visual Capitalist, Goldman Sachs, Savills, CoinMarketCap, SIFMA, BofA FMS, Thinking Ahead Institute, FRED
       </div>
     </div>
   );
