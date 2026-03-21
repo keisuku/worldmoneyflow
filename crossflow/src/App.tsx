@@ -1,6 +1,7 @@
 import Header from './components/Header.tsx';
 import BubbleMap from './components/BubbleMap.tsx';
 import AssetTable from './components/AssetTable.tsx';
+import MarketInsights from './components/MarketInsights.tsx';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
       <main style={{ padding: '0 0 40px' }}>
         <BubbleMap />
         <AssetTable />
+        <MarketInsights />
       </main>
     </div>
   );
