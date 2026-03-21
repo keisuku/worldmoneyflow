@@ -1,26 +1,30 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ASSET_POOLS, CATEGORY_META, TOTAL_ALL } from '../data/globalAssets';
-import type { Category, GlobalAsset } from '../data/globalAssets';
+import { regimeData } from '../data/mockFlowData';
+import type { Category, GlobalAsset, AssetChanges } from '../data/globalAssets';
+
+// ─── Time periods ───
+type TimePeriod = keyof AssetChanges;
+const TIME_PERIODS: { key: TimePeriod; label: string; labelJa: string }[] = [
+  { key: 'h1', label: '1H', labelJa: '1時間' },
+  { key: 'h4', label: '4H', labelJa: '4時間' },
+  { key: 'd1', label: '1D', labelJa: '1日' },
+  { key: 'w1', label: '1W', labelJa: '1週' },
+  { key: 'm1', label: '1M', labelJa: '1月' },
+  { key: 'y1', label: '1Y', labelJa: '1年' },
+];
 
 // ─── Cluster centers (normalized 0–1) per category ───
 const CLUSTER_CENTERS: Record<Category, { x: number; y: number }> = {
-  equities:      { x: 0.28, y: 0.48 },
-  bonds:         { x: 0.68, y: 0.45 },
-  'real-estate': { x: 0.75, y: 0.20 },
-  gold:          { x: 0.45, y: 0.78 },
-  crypto:        { x: 0.18, y: 0.78 },
-  private:       { x: 0.82, y: 0.68 },
+  equities:      { x: 0.25, y: 0.40 },
+  bonds:         { x: 0.72, y: 0.38 },
+  'real-estate': { x: 0.50, y: 0.18 },
+  gold:          { x: 0.50, y: 0.62 },
+  crypto:        { x: 0.15, y: 0.70 },
+  private:       { x: 0.85, y: 0.65 },
   institutional: { x: 0.50, y: 0.50 },
 };
-
-// ─── Flow arrows (narrative arcs) ───
-const FLOW_ARROWS: { from: Category; to: Category; label: string }[] = [
-  { from: 'equities', to: 'bonds', label: 'Risk-off' },
-  { from: 'equities', to: 'gold', label: 'Safe haven' },
-  { from: 'bonds', to: 'crypto', label: 'Speculative' },
-  { from: 'equities', to: 'private', label: 'Alternatives' },
-];
 
 // ─── Types for force sim nodes ───
 interface SimNode {
@@ -28,6 +32,9 @@ interface SimNode {
   x: number;
   y: number;
   r: number;
+  floatPhase: number;   // random offset for floating animation
+  floatSpeedX: number;
+  floatSpeedY: number;
 }
 
 // ─── Helpers ───
@@ -50,35 +57,45 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// ─── Force simulation (pure function, no D3) ───
+// ─── Force simulation ───
 function runForceSimulation(
   assets: GlobalAsset[],
   width: number,
   height: number,
+  period: TimePeriod,
 ): SimNode[] {
   const maxVal = Math.max(...assets.map((a) => a.totalValue));
-  const maxR = Math.min(width, height) * 0.13;
-  const minR = 8;
+  const maxR = Math.min(width, height) * 0.12;
+  const minR = 6;
 
+  // Scale change relative to total value → adjusts radius
   const nodes: SimNode[] = assets.map((asset) => {
     const center = CLUSTER_CENTERS[asset.category] ?? { x: 0.5, y: 0.5 };
-    const r = Math.max(minR, maxR * Math.sqrt(asset.totalValue / maxVal));
+    const baseR = Math.max(minR, maxR * Math.sqrt(asset.totalValue / maxVal));
+
+    // Change factor: positive change → grow, negative → shrink (subtle)
+    const changeB = asset.changes[period];
+    const changeFraction = (changeB / 1000) / asset.totalValue; // normalized
+    const scaleFactor = 1 + Math.max(-0.3, Math.min(0.3, changeFraction * 5));
+    const r = Math.max(minR, baseR * scaleFactor);
+
     return {
       asset,
-      x: center.x * width + (Math.random() - 0.5) * 60,
-      y: center.y * height + (Math.random() - 0.5) * 60,
+      x: center.x * width + (Math.random() - 0.5) * 50,
+      y: center.y * height + (Math.random() - 0.5) * 50,
       r,
+      floatPhase: Math.random() * Math.PI * 2,
+      floatSpeedX: 0.3 + Math.random() * 0.5,
+      floatSpeedY: 0.4 + Math.random() * 0.5,
     };
   });
 
-  // Run 300 iterations
-  const attractionStrength = 0.012;
+  const attractionStrength = 0.014;
   const padding = 3;
 
   for (let iter = 0; iter < 300; iter++) {
     const alpha = 1 - iter / 300;
 
-    // Category attraction — pull toward cluster center
     for (const node of nodes) {
       const center = CLUSTER_CENTERS[node.asset.category] ?? { x: 0.5, y: 0.5 };
       const tx = center.x * width;
@@ -87,7 +104,6 @@ function runForceSimulation(
       node.y += (ty - node.y) * attractionStrength * alpha;
     }
 
-    // Collision avoidance
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i];
@@ -108,7 +124,6 @@ function runForceSimulation(
       }
     }
 
-    // Keep within bounds
     for (const node of nodes) {
       node.x = Math.max(node.r + 5, Math.min(width - node.r - 5, node.x));
       node.y = Math.max(node.r + 5, Math.min(height - node.r - 5, node.y));
@@ -118,26 +133,36 @@ function runForceSimulation(
   return nodes;
 }
 
-// ─── SVG curved arrow path ───
-function curvedArrowPath(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
+// ─── Wave path generator ───
+function generateWavePath(
+  width: number,
+  height: number,
+  waveHeight: number,
+  time: number,
 ): string {
-  const mx = (x1 + x2) / 2;
-  const my = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  // Perpendicular offset for curvature
-  const offset = Math.sqrt(dx * dx + dy * dy) * 0.25;
-  const cx = mx - (dy / Math.sqrt(dx * dx + dy * dy)) * offset;
-  const cy = my + (dx / Math.sqrt(dx * dx + dy * dy)) * offset;
-  return `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+  const baseY = height - waveHeight;
+  let d = `M 0 ${height}`;
+  const segments = 12;
+  for (let i = 0; i <= segments; i++) {
+    const x = (i / segments) * width;
+    const y =
+      baseY +
+      Math.sin(i * 0.8 + time * 0.8) * waveHeight * 0.25 +
+      Math.sin(i * 1.6 + time * 1.2) * waveHeight * 0.12;
+    if (i === 0) {
+      d += ` L ${x} ${y}`;
+    } else {
+      const prevX = ((i - 1) / segments) * width;
+      const cpx = (prevX + x) / 2;
+      d += ` Q ${cpx} ${y - Math.sin(i + time) * waveHeight * 0.1} ${x} ${y}`;
+    }
+  }
+  d += ` L ${width} ${height} Z`;
+  return d;
 }
 
-// ─── Keyframe styles (injected once) ───
-const glowKeyframes = `
+// ─── Keyframe styles ───
+const keyframeStyles = `
 @keyframes bubble-pulse {
   0%, 100% { filter: drop-shadow(0 0 6px var(--glow-color)); }
   50% { filter: drop-shadow(0 0 18px var(--glow-color)) drop-shadow(0 0 30px var(--glow-color)); }
@@ -147,11 +172,19 @@ const glowKeyframes = `
 }
 `;
 
+// ─── Risk regime ───
+// score: 0 = max risk-off, 100 = max risk-on
+const riskScore = regimeData.score; // 38 = cautious
+const isRiskOff = riskScore < 40;
+
 // ─── Component ───
 export default function BubbleMap() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 1200, height: 700 });
+  const [size, setSize] = useState({ width: 800, height: 500 });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [period, setPeriod] = useState<TimePeriod>('d1');
+  const [waveTime, setWaveTime] = useState(0);
+  const [floatTime, setFloatTime] = useState(0);
 
   // Measure container
   useEffect(() => {
@@ -169,36 +202,64 @@ export default function BubbleMap() {
     return () => observer.disconnect();
   }, []);
 
-  // Run force simulation once per size change
+  // Animation loop for wave + float
+  useEffect(() => {
+    let raf: number;
+    let start: number | null = null;
+    const tick = (ts: number) => {
+      if (start === null) start = ts;
+      const elapsed = (ts - start) / 1000;
+      setWaveTime(elapsed);
+      setFloatTime(elapsed);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Run force simulation per size/period change
   const nodes = useMemo(
-    () => runForceSimulation(ASSET_POOLS, size.width, size.height),
-    [size.width, size.height],
+    () => runForceSimulation(ASSET_POOLS, size.width, size.height * 0.82, period),
+    [size.width, size.height, period],
   );
 
-  // Node map for arrow lookups
-  const categoryCenter = useMemo(() => {
-    const centers: Partial<Record<Category, { x: number; y: number; count: number }>> = {};
-    for (const n of nodes) {
-      const cat = n.asset.category;
-      if (!centers[cat]) centers[cat] = { x: 0, y: 0, count: 0 };
-      centers[cat]!.x += n.x;
-      centers[cat]!.y += n.y;
-      centers[cat]!.count += 1;
-    }
-    const result: Partial<Record<Category, { x: number; y: number }>> = {};
-    for (const [cat, val] of Object.entries(centers) as [Category, { x: number; y: number; count: number }][]) {
-      result[cat] = { x: val.x / val.count, y: val.y / val.count };
-    }
-    return result;
-  }, [nodes]);
-
   const hoveredNode = hoveredId ? nodes.find((n) => n.asset.id === hoveredId) : null;
+
+  // Risk wave parameters
+  const riskOffIntensity = Math.max(0, (50 - riskScore) / 50); // 0–1, higher when more risk-off
+  const riskOnIntensity = Math.max(0, (riskScore - 50) / 50);  // 0–1, higher when more risk-on
+
+  // Wave height: risk-off → small green wave; risk-on → large red wave
+  const waveBaseHeight = size.height * 0.06;
+  const waveMaxExtra = size.height * 0.18;
+  const waveHeight = waveBaseHeight + (isRiskOff
+    ? waveMaxExtra * 0.2 * riskOffIntensity  // small wave in risk-off
+    : waveMaxExtra * riskOnIntensity          // large wave in risk-on
+  );
+
+  // Bubble scale factor: risk-off → bubbles bigger (safe havens inflating); risk-on → bubbles deflate
+  const bubbleScale = isRiskOff
+    ? 1 + riskOffIntensity * 0.15  // grow up to 15%
+    : 1 - riskOnIntensity * 0.12;  // shrink up to 12%
+
+  const waveColor = isRiskOff ? '#10b981' : '#ef4444';
+  const waveOpacity = isRiskOff ? 0.35 + riskOffIntensity * 0.15 : 0.25 + riskOnIntensity * 0.25;
+
+  const wavePath = generateWavePath(size.width, size.height, waveHeight, waveTime);
+  const wavePath2 = generateWavePath(size.width, size.height, waveHeight * 0.7, waveTime + 1.5);
 
   const totalDisplay = (TOTAL_ALL / 1).toFixed(1);
 
   const categories = Object.entries(CATEGORY_META).filter(
     ([key]) => key !== 'institutional',
   ) as [Category, (typeof CATEGORY_META)[Category]][];
+
+  // Get floating position offset for a node
+  const getFloat = useCallback((node: SimNode) => {
+    const dx = Math.sin(floatTime * node.floatSpeedX + node.floatPhase) * 3;
+    const dy = Math.cos(floatTime * node.floatSpeedY + node.floatPhase + 1) * 2.5;
+    return { dx, dy };
+  }, [floatTime]);
 
   return (
     <motion.div
@@ -209,19 +270,19 @@ export default function BubbleMap() {
         position: 'relative',
         width: '100%',
         height: '75vh',
-        minHeight: 500,
+        minHeight: 420,
         background: 'linear-gradient(180deg, #0a0e27 0%, #0d1117 70%, #1a1a2e 100%)',
         borderRadius: 12,
         overflow: 'hidden',
       }}
     >
-      <style>{glowKeyframes}</style>
+      <style>{keyframeStyles}</style>
 
-      {/* Title */}
+      {/* Title + period selector */}
       <div
         style={{
           position: 'absolute',
-          top: 16,
+          top: 10,
           left: 0,
           right: 0,
           textAlign: 'center',
@@ -232,13 +293,13 @@ export default function BubbleMap() {
         <h2
           style={{
             margin: 0,
-            fontSize: 'clamp(16px, 2.2vw, 24px)',
+            fontSize: 'clamp(14px, 2vw, 20px)',
             fontWeight: 700,
             color: '#e2e8f0',
             letterSpacing: '0.02em',
           }}
         >
-          Global Capital Pools — ${totalDisplay}T Total
+          世界の資本プール — ${totalDisplay}T
         </h2>
       </div>
 
@@ -246,16 +307,16 @@ export default function BubbleMap() {
       <div
         style={{
           position: 'absolute',
-          top: 48,
+          top: 36,
           left: 0,
           right: 0,
           display: 'flex',
           justifyContent: 'center',
           flexWrap: 'wrap',
-          gap: '6px 16px',
+          gap: '4px 12px',
           zIndex: 10,
           pointerEvents: 'none',
-          padding: '0 16px',
+          padding: '0 12px',
         }}
       >
         {categories.map(([key, meta]) => (
@@ -264,30 +325,96 @@ export default function BubbleMap() {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 5,
-              fontSize: 'clamp(10px, 1.2vw, 13px)',
+              gap: 4,
+              fontSize: 'clamp(9px, 1.1vw, 12px)',
               color: '#94a3b8',
             }}
           >
             <span
               style={{
-                width: 10,
-                height: 10,
+                width: 8,
+                height: 8,
                 borderRadius: '50%',
                 background: meta.color,
                 display: 'inline-block',
                 flexShrink: 0,
               }}
             />
-            {meta.label}
+            {meta.labelJa}
           </span>
         ))}
+      </div>
+
+      {/* Time period selector */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 56,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'center',
+          gap: 4,
+          zIndex: 10,
+          padding: '0 12px',
+        }}
+      >
+        {TIME_PERIODS.map((tp) => (
+          <button
+            key={tp.key}
+            onClick={() => setPeriod(tp.key)}
+            style={{
+              padding: '3px 10px',
+              borderRadius: 6,
+              border: period === tp.key
+                ? '1px solid rgba(255,255,255,0.4)'
+                : '1px solid rgba(255,255,255,0.1)',
+              background: period === tp.key
+                ? 'rgba(255,255,255,0.15)'
+                : 'rgba(255,255,255,0.04)',
+              color: period === tp.key ? '#f1f5f9' : '#64748b',
+              fontSize: 'clamp(10px, 1.2vw, 13px)',
+              fontWeight: period === tp.key ? 700 : 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            {tp.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Risk regime indicator */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 10,
+          right: 12,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 'clamp(9px, 1vw, 11px)',
+          color: isRiskOff ? '#10b981' : '#ef4444',
+          fontWeight: 600,
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: isRiskOff ? '#10b981' : '#ef4444',
+            boxShadow: `0 0 8px ${isRiskOff ? '#10b981' : '#ef4444'}`,
+          }}
+        />
+        {isRiskOff ? 'リスクオフ' : 'リスクオン'}
       </div>
 
       {/* SVG container */}
       <div
         ref={containerRef}
-        style={{ width: '100%', height: '100%', paddingTop: 76 }}
+        style={{ width: '100%', height: '100%', paddingTop: 80 }}
       >
         <svg
           width={size.width}
@@ -296,106 +423,79 @@ export default function BubbleMap() {
           style={{ display: 'block', width: '100%', height: '100%' }}
         >
           <defs>
-            <marker
-              id="arrowhead"
-              markerWidth="8"
-              markerHeight="6"
-              refX="7"
-              refY="3"
-              orient="auto"
-            >
-              <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.35)" />
-            </marker>
+            <linearGradient id="waveGrad" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={waveColor} stopOpacity={waveOpacity * 0.6} />
+              <stop offset="100%" stopColor={waveColor} stopOpacity={waveOpacity} />
+            </linearGradient>
+            <linearGradient id="waveGrad2" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={waveColor} stopOpacity={waveOpacity * 0.3} />
+              <stop offset="100%" stopColor={waveColor} stopOpacity={waveOpacity * 0.6} />
+            </linearGradient>
           </defs>
 
-          {/* Flow arrows */}
-          {FLOW_ARROWS.map((arrow, i) => {
-            const fromC = categoryCenter[arrow.from];
-            const toC = categoryCenter[arrow.to];
-            if (!fromC || !toC) return null;
-            const path = curvedArrowPath(fromC.x, fromC.y, toC.x, toC.y);
-            const midX = (fromC.x + toC.x) / 2;
-            const midY = (fromC.y + toC.y) / 2;
-            const dx = toC.x - fromC.x;
-            const dy = toC.y - fromC.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const offsetAmt = dist * 0.12;
-            const labelX = midX - (dy / dist) * offsetAmt;
-            const labelY = midY + (dx / dist) * offsetAmt;
-            return (
-              <g key={i}>
-                <path
-                  d={path}
-                  fill="none"
-                  stroke="rgba(255,255,255,0.18)"
-                  strokeWidth={1.5}
-                  strokeDasharray="6 4"
-                  markerEnd="url(#arrowhead)"
-                  style={{ animation: 'dash-flow 1.5s linear infinite' }}
-                />
-                <text
-                  x={labelX}
-                  y={labelY}
-                  textAnchor="middle"
-                  fill="rgba(255,255,255,0.4)"
-                  fontSize={Math.max(10, size.width * 0.009)}
-                  fontStyle="italic"
-                >
-                  {arrow.label}
-                </text>
-              </g>
-            );
-          })}
+          {/* Background wave 2 (behind) */}
+          <path d={wavePath2} fill="url(#waveGrad2)" />
 
           {/* Bubbles */}
           {nodes.map((node) => {
-            const { asset, x, y, r } = node;
+            const { asset, x, y, r: baseR } = node;
             const cat = CATEGORY_META[asset.category];
             const isHovered = hoveredId === asset.id;
             const baseOpacity = asset.investable ? 0.75 : 0.4;
             const fillOpacity = isHovered ? Math.min(baseOpacity + 0.2, 0.95) : baseOpacity;
             const shouldPulse = asset.volatility >= 0.8;
-            const showName = r > 18;
-            const fontSize = Math.max(8, Math.min(14, r * 0.26));
-            const valueFontSize = Math.max(7, Math.min(12, r * 0.22));
+
+            const r = baseR * bubbleScale;
+            const { dx, dy } = getFloat(node);
+            const fx = x + dx;
+            const fy = y + dy;
+
+            const showName = r > 16;
+            const fontSize = Math.max(7, Math.min(12, r * 0.24));
+            const valueFontSize = Math.max(6, Math.min(10, r * 0.20));
+
+            // Change indicator
+            const change = asset.changes[period];
+            const changeColor = change >= 0 ? '#22c55e' : '#ef4444';
 
             return (
               <g
                 key={asset.id}
                 onMouseEnter={() => setHoveredId(asset.id)}
                 onMouseLeave={() => setHoveredId(null)}
+                onTouchStart={() => setHoveredId(asset.id)}
+                onTouchEnd={() => setHoveredId(null)}
                 style={{
                   cursor: 'pointer',
                   ['--glow-color' as string]: cat.color,
                   ...(shouldPulse
-                    ? { animation: 'bubble-pulse 2s ease-in-out infinite' }
+                    ? { animation: 'bubble-pulse 2.5s ease-in-out infinite' }
                     : {}),
                 }}
               >
                 {/* Glow ring for high-volatility */}
                 {shouldPulse && (
                   <circle
-                    cx={x}
-                    cy={y}
-                    r={r + 4}
+                    cx={fx}
+                    cy={fy}
+                    r={r + 3}
                     fill="none"
                     stroke={cat.color}
-                    strokeWidth={1.5}
+                    strokeWidth={1.2}
                     opacity={0.3}
                   />
                 )}
 
                 {/* Main bubble */}
                 <circle
-                  cx={x}
-                  cy={y}
+                  cx={fx}
+                  cy={fy}
                   r={isHovered ? r * 1.08 : r}
                   fill={hexToRgba(cat.color, fillOpacity * 0.4)}
                   stroke={cat.color}
-                  strokeWidth={isHovered ? 2.5 : 1.2}
-                  opacity={1}
+                  strokeWidth={isHovered ? 2.5 : 1}
                   style={{
-                    transition: 'r 0.2s ease, stroke-width 0.2s ease',
+                    transition: 'r 0.3s ease, stroke-width 0.2s ease',
                     filter: isHovered
                       ? `drop-shadow(0 0 12px ${cat.color})`
                       : shouldPulse
@@ -404,11 +504,11 @@ export default function BubbleMap() {
                   }}
                 />
 
-                {/* Name label */}
+                {/* Japanese name */}
                 {showName && (
                   <text
-                    x={x}
-                    y={y - valueFontSize * 0.5}
+                    x={fx}
+                    y={fy - valueFontSize * 0.8}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fill="#e2e8f0"
@@ -416,102 +516,163 @@ export default function BubbleMap() {
                     fontWeight={600}
                     style={{ pointerEvents: 'none', userSelect: 'none' }}
                   >
-                    {asset.nameShort}
+                    {asset.nameJa}
                   </text>
                 )}
 
                 {/* Value label */}
                 <text
-                  x={x}
-                  y={showName ? y + fontSize * 0.7 : y}
+                  x={fx}
+                  y={showName ? fy + fontSize * 0.4 : fy - valueFontSize * 0.3}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill="rgba(226,232,240,0.8)"
+                  fill="rgba(226,232,240,0.85)"
                   fontSize={valueFontSize}
                   fontFamily="monospace"
                   style={{ pointerEvents: 'none', userSelect: 'none' }}
                 >
                   {formatTrillions(asset.totalValue)}
                 </text>
+
+                {/* Change indicator (small text below) */}
+                {showName && change !== 0 && (
+                  <text
+                    x={fx}
+                    y={fy + fontSize * 0.4 + valueFontSize * 1.1}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill={changeColor}
+                    fontSize={Math.max(6, valueFontSize * 0.85)}
+                    fontFamily="monospace"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {formatChange(change)}
+                  </text>
+                )}
               </g>
+            );
+          })}
+
+          {/* Foreground wave (on top) */}
+          <path d={wavePath} fill="url(#waveGrad)" />
+
+          {/* Wave label */}
+          <text
+            x={size.width / 2}
+            y={size.height - waveHeight * 0.35}
+            textAnchor="middle"
+            fill={isRiskOff ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,71,0.7)'}
+            fontSize={Math.max(10, size.width * 0.012)}
+            fontWeight={600}
+          >
+            {isRiskOff ? '安全資産へ資金流入中' : 'リスク資産へ資金流入中'}
+          </text>
+
+          {/* Small bubble icons in wave (visual effect) */}
+          {isRiskOff && Array.from({ length: 6 }).map((_, i) => {
+            const bx = (size.width * (i + 1)) / 7;
+            const by = size.height - waveHeight * 0.5 + Math.sin(waveTime * 0.6 + i * 1.2) * 8;
+            const br = 3 + Math.sin(waveTime * 0.4 + i) * 1.5;
+            return (
+              <circle
+                key={`foam-${i}`}
+                cx={bx}
+                cy={by}
+                r={br}
+                fill="rgba(16,185,129,0.3)"
+                stroke="rgba(16,185,129,0.15)"
+                strokeWidth={0.5}
+              />
             );
           })}
         </svg>
       </div>
 
       {/* Hover tooltip */}
-      {hoveredNode && (
-        <div
-          style={{
-            position: 'absolute',
-            left: Math.min(hoveredNode.x + hoveredNode.r + 16, size.width - 240),
-            top: Math.max(hoveredNode.y - 40 + 76, 90),
-            background: 'rgba(15, 23, 42, 0.95)',
-            border: `1px solid ${CATEGORY_META[hoveredNode.asset.category].color}`,
-            borderRadius: 8,
-            padding: '10px 14px',
-            zIndex: 20,
-            pointerEvents: 'none',
-            minWidth: 180,
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <div
+      <AnimatePresence>
+        {hoveredNode && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.15 }}
             style={{
-              fontSize: 14,
-              fontWeight: 700,
-              color: '#f1f5f9',
-              marginBottom: 4,
+              position: 'absolute',
+              left: Math.min(
+                hoveredNode.x + hoveredNode.r + 12,
+                size.width - 200,
+              ),
+              top: Math.max(hoveredNode.y - 30 + 80, 90),
+              background: 'rgba(15, 23, 42, 0.95)',
+              border: `1px solid ${CATEGORY_META[hoveredNode.asset.category].color}`,
+              borderRadius: 8,
+              padding: '8px 12px',
+              zIndex: 20,
+              pointerEvents: 'none',
+              minWidth: 160,
+              backdropFilter: 'blur(8px)',
             }}
           >
-            {hoveredNode.asset.emoji} {hoveredNode.asset.name}
-          </div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2 }}>
-            {CATEGORY_META[hoveredNode.asset.category].label}
-            {hoveredNode.asset.region ? ` — ${hoveredNode.asset.region}` : ''}
-          </div>
-          <div
-            style={{
-              fontSize: 16,
-              fontWeight: 700,
-              color: CATEGORY_META[hoveredNode.asset.category].color,
-              margin: '4px 0',
-            }}
-          >
-            {formatTrillions(hoveredNode.asset.totalValue)}
-          </div>
-          <div style={{ fontSize: 12, display: 'flex', gap: 12 }}>
-            <span
-              style={{
-                color:
-                  hoveredNode.asset.changes.d1 >= 0 ? '#22c55e' : '#ef4444',
-              }}
-            >
-              1d: {formatChange(hoveredNode.asset.changes.d1)}
-            </span>
-            <span
-              style={{
-                color:
-                  hoveredNode.asset.changes.w1 >= 0 ? '#22c55e' : '#ef4444',
-              }}
-            >
-              1w: {formatChange(hoveredNode.asset.changes.w1)}
-            </span>
-          </div>
-          {!hoveredNode.asset.investable && (
             <div
               style={{
-                fontSize: 10,
-                color: '#64748b',
-                marginTop: 4,
-                fontStyle: 'italic',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#f1f5f9',
+                marginBottom: 2,
               }}
             >
-              Illiquid / non-tradeable
+              {hoveredNode.asset.emoji} {hoveredNode.asset.nameJa}
             </div>
-          )}
-        </div>
-      )}
+            <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
+              {hoveredNode.asset.name}
+              {hoveredNode.asset.region ? ` — ${hoveredNode.asset.region}` : ''}
+            </div>
+            <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>
+              {CATEGORY_META[hoveredNode.asset.category].labelJa}
+            </div>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: CATEGORY_META[hoveredNode.asset.category].color,
+                margin: '3px 0',
+              }}
+            >
+              {formatTrillions(hoveredNode.asset.totalValue)}
+            </div>
+            <div style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {TIME_PERIODS.map((tp) => {
+                const v = hoveredNode.asset.changes[tp.key];
+                return (
+                  <span
+                    key={tp.key}
+                    style={{
+                      color: v >= 0 ? '#22c55e' : '#ef4444',
+                      fontWeight: tp.key === period ? 700 : 400,
+                      textDecoration: tp.key === period ? 'underline' : 'none',
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    {tp.label}: {formatChange(v)}
+                  </span>
+                );
+              })}
+            </div>
+            {!hoveredNode.asset.investable && (
+              <div
+                style={{
+                  fontSize: 9,
+                  color: '#64748b',
+                  marginTop: 3,
+                  fontStyle: 'italic',
+                }}
+              >
+                非流動性資産
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
