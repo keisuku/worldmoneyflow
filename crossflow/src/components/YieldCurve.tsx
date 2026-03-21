@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { yieldCurveData } from '../data/mockFlowData.ts';
+import { yieldCurveData } from '../data/marketData.ts';
 
 export default function YieldCurve() {
   const spread2s10s = (() => {

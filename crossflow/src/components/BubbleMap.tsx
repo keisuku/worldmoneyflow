@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ASSET_POOLS, CATEGORY_META } from '../data/globalAssets';
-import { regimeData } from '../data/mockFlowData';
+import { regimeData } from '../data/marketData';
 import { T } from '../theme';
 import type { Category, GlobalAsset, AssetChanges } from '../data/globalAssets';
 

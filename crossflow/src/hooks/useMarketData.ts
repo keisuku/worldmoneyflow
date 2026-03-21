@@ -18,19 +18,19 @@ let fxRatesCache: { rates: Record<string, number>; fetchedAt: number } | null = 
 
 /**
  * マーケットデータ統合Hook
- * 初回はモックデータを即表示 → バックグラウンドでAPI並列取得 → マージ更新
+ * 初回は初期データを即表示 → バックグラウンドでAPI並列取得 → マージ更新
  */
 export function useMarketData(nodes: MarketNode[]) {
-  const [data, setData] = useState<Map<string, MarketDataPoint>>(() => initMockData(nodes));
+  const [data, setData] = useState<Map<string, MarketDataPoint>>(() => initDefaultData(nodes));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
-  // ノード変更時にモックデータでリセット（即座に表示）
+  // ノード変更時に初期データでリセット（即座に表示）
   useEffect(() => {
-    setData(initMockData(nodes));
+    setData(initDefaultData(nodes));
   }, [nodes]);
 
   // データソース登録
@@ -77,7 +77,7 @@ export function useMarketData(nodes: MarketNode[]) {
         }
       }
 
-      // API取れなかったノードはキャッシュ or 既存(モック)をそのまま保持
+      // API取れなかったノードはキャッシュ or 既存(初期値)をそのまま保持
       for (const node of currentNodes) {
         if (!merged.has(node.id)) {
           const cached = cache.get(node.id);
@@ -92,7 +92,7 @@ export function useMarketData(nodes: MarketNode[]) {
   }, []);
 
   useEffect(() => {
-    // 初回API取得（モック表示後にバックグラウンドで）
+    // 初回API取得（初期表示後にバックグラウンドで）
     refresh();
     // 1分間隔でリフレッシュ
     intervalRef.current = setInterval(refresh, 60_000);
@@ -245,17 +245,17 @@ async function fetchFxData(
 
 // ===== Mock Data =====
 
-/** 初期モックデータ生成（即座にUI表示するため） */
-function initMockData(nodes: MarketNode[]): Map<string, MarketDataPoint> {
+/** 初期データ生成（即座にUI表示するため） */
+function initDefaultData(nodes: MarketNode[]): Map<string, MarketDataPoint> {
   const map = new Map<string, MarketDataPoint>();
   const now = Date.now();
   for (const node of nodes) {
-    map.set(node.id, generateMockPoint(node, now));
+    map.set(node.id, generateDefaultPoint(node, now));
   }
   return map;
 }
 
-function generateMockPoint(node: MarketNode, now: number): MarketDataPoint {
+function generateDefaultPoint(node: MarketNode, now: number): MarketDataPoint {
   const basePrice = MOCK_PRICES[node.id] ?? 100;
   const change1d = (Math.random() - 0.5) * 4;
   return {

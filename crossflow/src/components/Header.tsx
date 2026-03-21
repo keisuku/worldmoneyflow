@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { regimeData, headerIndicators } from '../data/mockFlowData.ts';
+import { regimeData, headerIndicators } from '../data/marketData.ts';
 import { T, REGIME_JA, DATA_TIMESTAMP } from '../theme.ts';
 
 export default function Header() {
